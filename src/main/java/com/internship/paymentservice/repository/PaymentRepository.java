@@ -9,9 +9,32 @@ import java.util.Optional;
 public interface PaymentRepository
         extends JpaRepository<Payment, Long> {
 
+    // =====================================================
+    // FIND PAYMENT BY RAZORPAY ORDER ID
+    // =====================================================
+
     Optional<Payment> findByOrderId(String orderId);
+
+
+    // =====================================================
+    // FIND PAYMENTS BY STATUS
+    // =====================================================
 
     List<Payment> findByStatus(String status);
 
+
+    // =====================================================
+    // FIND PAYMENTS BY USER
+    // =====================================================
+
     List<Payment> findByUserId(String userId);
+
+
+    // =====================================================
+    // IDEMPOTENCY
+    // =====================================================
+
+    Optional<Payment> findByIdempotencyKey(
+            String idempotencyKey
+    );
 }

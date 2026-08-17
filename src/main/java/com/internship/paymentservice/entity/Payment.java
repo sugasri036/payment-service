@@ -4,7 +4,15 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payments")
+@Table(
+    name = "payments",
+    uniqueConstraints = {
+        @UniqueConstraint(
+            name = "uk_payment_idempotency_key",
+            columnNames = "idempotency_key"
+        )
+    }
+)
 public class Payment {
 
     @Id
@@ -23,7 +31,17 @@ public class Payment {
 
     private LocalDateTime createdAt;
 
-    // Refund details
+    // =====================================================
+    // IDEMPOTENCY KEY
+    // =====================================================
+
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
+
+    // =====================================================
+    // REFUND DETAILS
+    // =====================================================
+
     private String refundId;
 
     private Double refundAmount;
@@ -97,6 +115,19 @@ public class Payment {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+
+    // =====================================================
+    // IDEMPOTENCY KEY GETTERS AND SETTERS
+    // =====================================================
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
     }
 
 

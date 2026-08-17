@@ -1,11 +1,15 @@
 package com.internship.paymentservice.controller;
 
 import com.internship.paymentservice.service.PaymentService;
+
+import org.json.JSONObject;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+
 import java.nio.charset.StandardCharsets;
 
 @RestController
@@ -17,117 +21,200 @@ public class PaymentWebhookController {
     @Value("${razorpay.webhook.secret}")
     private String webhookSecret;
 
-    public PaymentWebhookController(PaymentService paymentService) {
+    public PaymentWebhookController(
+            PaymentService paymentService) {
+
         this.paymentService = paymentService;
     }
+
+    // =====================================================
+    // RAZORPAY WEBHOOK
+    // =====================================================
 
     @PostMapping("/webhook")
     public String webhook(
             @RequestBody String payload,
-            @RequestHeader("X-Razorpay-Signature") String signature) {
+            @RequestHeader("X-Razorpay-Signature")
+            String signature) {
 
         try {
 
+            System.out.println();
             System.out.println("====================================");
             System.out.println("RAZORPAY WEBHOOK RECEIVED");
-            System.out.println("Payload:");
-            System.out.println(payload);
             System.out.println("====================================");
 
-            // =====================================================
-            // 1. Verify Razorpay webhook signature
-            // =====================================================
+            // =================================================
+            // 1. VERIFY SIGNATURE
+            // =================================================
 
             String expectedSignature =
-                    generateSignature(payload, webhookSecret);
+                    generateSignature(
+                            payload,
+                            webhookSecret
+                    );
 
             if (!expectedSignature.equals(signature)) {
 
-                System.out.println("INVALID WEBHOOK SIGNATURE");
+                System.out.println(
+                        "INVALID WEBHOOK SIGNATURE"
+                );
 
                 throw new RuntimeException(
                         "Invalid Razorpay webhook signature"
                 );
             }
 
-            System.out.println("WEBHOOK SIGNATURE VERIFIED");
+            System.out.println(
+                    "WEBHOOK SIGNATURE VERIFIED"
+            );
 
 
-            // =====================================================
-            // 2. Successful payment
-            // =====================================================
+            // =================================================
+            // 2. PARSE JSON
+            // =================================================
 
-            if (payload.contains("\"event\":\"order.paid\"")
-                    || payload.contains("\"event\":\"payment.captured\"")) {
+            JSONObject webhook =
+                    new JSONObject(payload);
 
-                System.out.println("SUCCESS PAYMENT EVENT RECEIVED");
+            String event =
+                    webhook.getString("event");
 
-                String orderId = extractOrderId(payload);
-                String paymentId = extractPaymentId(payload);
-
-                System.out.println("Order ID: " + orderId);
-                System.out.println("Payment ID: " + paymentId);
-
-                if (orderId != null) {
-
-                    paymentService.updateStatus(
-                            orderId,
-                            "PAID",
-                            paymentId
-                    );
-
-                    System.out.println(
-                            "PAYMENT STATUS UPDATED TO PAID"
-                    );
-
-                } else {
-
-                    System.out.println(
-                            "ORDER ID NOT FOUND IN WEBHOOK"
-                    );
-                }
-            }
+            System.out.println(
+                    "EVENT: " + event
+            );
 
 
-            // =====================================================
-            // 3. Failed payment
-            // =====================================================
+            // =================================================
+            // 3. PAYMENT CAPTURED
+            // =================================================
 
-            if (payload.contains("\"event\":\"payment.failed\"")) {
+            if ("payment.captured".equals(event)) {
+
+                JSONObject paymentEntity =
+                        webhook
+                                .getJSONObject("payload")
+                                .getJSONObject("payment")
+                                .getJSONObject("entity");
+
+                String paymentId =
+                        paymentEntity.getString("id");
+
+                String orderId =
+                        paymentEntity.getString("order_id");
 
                 System.out.println(
-                        "PAYMENT FAILED EVENT RECEIVED"
+                        "Payment ID: " + paymentId
                 );
 
-                String orderId = extractOrderId(payload);
+                System.out.println(
+                        "Order ID: " + orderId
+                );
 
-                System.out.println("Order ID: " + orderId);
+                paymentService.updateStatus(
+                        orderId,
+                        "PAID",
+                        paymentId
+                );
 
-                if (orderId != null) {
-
-                    paymentService.updateStatus(
-                            orderId,
-                            "FAILED",
-                            null
-                    );
-
-                    System.out.println(
-                            "PAYMENT STATUS UPDATED TO FAILED"
-                    );
-
-                } else {
-
-                    System.out.println(
-                            "ORDER ID NOT FOUND IN WEBHOOK"
-                    );
-                }
+                System.out.println(
+                        "PAYMENT STATUS UPDATED TO PAID"
+                );
             }
+
+
+            // =================================================
+            // 4. PAYMENT FAILED
+            // =================================================
+
+            else if ("payment.failed".equals(event)) {
+
+                JSONObject paymentEntity =
+                        webhook
+                                .getJSONObject("payload")
+                                .getJSONObject("payment")
+                                .getJSONObject("entity");
+
+                String orderId =
+                        paymentEntity.getString("order_id");
+
+                System.out.println(
+                        "Order ID: " + orderId
+                );
+
+                paymentService.updateStatus(
+                        orderId,
+                        "FAILED",
+                        null
+                );
+
+                System.out.println(
+                        "PAYMENT STATUS UPDATED TO FAILED"
+                );
+            }
+
+
+            // =================================================
+            // 5. ORDER PAID
+            // =================================================
+
+            else if ("order.paid".equals(event)) {
+
+                JSONObject orderEntity =
+                        webhook
+                                .getJSONObject("payload")
+                                .getJSONObject("order")
+                                .getJSONObject("entity");
+
+                String orderId =
+                        orderEntity.getString("id");
+
+                System.out.println(
+                        "Order ID: " + orderId
+                );
+
+                paymentService.updateStatus(
+                        orderId,
+                        "PAID",
+                        null
+                );
+
+                System.out.println(
+                        "ORDER STATUS UPDATED TO PAID"
+                );
+            }
+
+
+            // =================================================
+            // 6. OTHER EVENTS
+            // =================================================
+
+            else {
+
+                System.out.println(
+                        "EVENT RECEIVED BUT NOT HANDLED: "
+                                + event
+                );
+            }
+
+
+            System.out.println(
+                    "WEBHOOK PROCESSING COMPLETED"
+            );
+
+            System.out.println(
+                    "===================================="
+            );
 
 
             return "Webhook processed successfully";
 
 
         } catch (Exception e) {
+
+            System.out.println(
+                    "WEBHOOK PROCESSING FAILED"
+            );
 
             e.printStackTrace();
 
@@ -139,19 +226,23 @@ public class PaymentWebhookController {
     }
 
 
-    // =========================================================
-    // Generate HMAC SHA256 signature
-    // =========================================================
+    // =====================================================
+    // HMAC SHA256 SIGNATURE
+    // =====================================================
 
     private String generateSignature(
             String payload,
-            String secret) throws Exception {
+            String secret)
+            throws Exception {
 
-        Mac mac = Mac.getInstance("HmacSHA256");
+        Mac mac =
+                Mac.getInstance("HmacSHA256");
 
         SecretKeySpec secretKey =
                 new SecretKeySpec(
-                        secret.getBytes(StandardCharsets.UTF_8),
+                        secret.getBytes(
+                                StandardCharsets.UTF_8
+                        ),
                         "HmacSHA256"
                 );
 
@@ -159,111 +250,24 @@ public class PaymentWebhookController {
 
         byte[] hash =
                 mac.doFinal(
-                        payload.getBytes(StandardCharsets.UTF_8)
+                        payload.getBytes(
+                                StandardCharsets.UTF_8
+                        )
                 );
 
-        StringBuilder hex = new StringBuilder();
+        StringBuilder hex =
+                new StringBuilder();
 
         for (byte b : hash) {
 
             hex.append(
-                    String.format("%02x", b)
+                    String.format(
+                            "%02x",
+                            b
+                    )
             );
         }
 
         return hex.toString();
-    }
-
-
-    // =========================================================
-    // Extract Order ID
-    // =========================================================
-
-    private String extractOrderId(String payload) {
-
-        // -----------------------------------------------------
-        // payment.captured / payment.failed
-        //
-        // Example:
-        // "order_id":"order_ABC123"
-        // -----------------------------------------------------
-
-        String key = "\"order_id\":\"";
-
-        int start = payload.indexOf(key);
-
-        if (start != -1) {
-
-            start += key.length();
-
-            int end =
-                    payload.indexOf("\"", start);
-
-            if (end != -1) {
-
-                return payload.substring(start, end);
-            }
-        }
-
-
-        // -----------------------------------------------------
-        // order.paid
-        //
-        // Example:
-        // "id":"order_ABC123"
-        // -----------------------------------------------------
-
-        key = "\"id\":\"order_";
-
-        start = payload.indexOf(key);
-
-        if (start != -1) {
-
-            // Move to the beginning of "order_"
-            start += 6;
-
-            int end =
-                    payload.indexOf("\"", start);
-
-            if (end != -1) {
-
-                return payload.substring(start, end);
-            }
-        }
-
-        return null;
-    }
-
-
-    // =========================================================
-    // Extract Payment ID
-    // =========================================================
-
-    private String extractPaymentId(String payload) {
-
-        // Example:
-        // "id":"pay_ABC123"
-
-        String key = "\"id\":\"pay_";
-
-        int start = payload.indexOf(key);
-
-        if (start == -1) {
-
-            return null;
-        }
-
-        // Move to the beginning of "pay_"
-        start += 6;
-
-        int end =
-                payload.indexOf("\"", start);
-
-        if (end == -1) {
-
-            return null;
-        }
-
-        return payload.substring(start, end);
     }
 }

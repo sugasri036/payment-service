@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-
 @RestController
 @RequestMapping("/payments")
 public class PaymentController {
@@ -30,11 +29,14 @@ public class PaymentController {
 
     @PostMapping("/create")
     public Payment createPayment(
+            @RequestHeader("Idempotency-Key")
+            String idempotencyKey,
             @RequestBody CreatePaymentRequest request)
             throws Exception {
 
         return paymentService.createPayment(
-                request
+                request,
+                idempotencyKey
         );
     }
 
