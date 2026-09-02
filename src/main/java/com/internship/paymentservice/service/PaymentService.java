@@ -1,119 +1,70 @@
 package com.internship.paymentservice.service;
 
 import com.internship.paymentservice.dto.CreatePaymentRequest;
+import com.internship.paymentservice.dto.RefundPaymentRequest;
+import com.internship.paymentservice.dto.VerifyPaymentRequest;
 import com.internship.paymentservice.entity.Payment;
 import com.internship.paymentservice.repository.PaymentRepository;
+
+import com.razorpay.Order;
+import com.razorpay.RazorpayClient;
+import com.razorpay.Utils;
 
 import org.json.JSONObject;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import jakarta.annotation.PostConstruct;
-
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
 
-    @Value("${razorpay.key.id}")
-    private String keyId;
+    private final RazorpayClient razorpayClient;
+
+    private final RestTemplate restTemplate;
 
     @Value("${razorpay.key.secret}")
-    private String keySecret;
+    private String razorpaySecret;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+
+    // =====================================================
+    // PAYMENT EXPIRY
+    // =====================================================
+
+    private static final long PAYMENT_EXPIRY_MINUTES = 10;
+
+
+    // =====================================================
+    // CONSTRUCTOR
+    // =====================================================
 
     public PaymentService(
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            RestTemplate restTemplate,
+            @Value("${razorpay.key.id}") String keyId,
+            @Value("${razorpay.key.secret}") String keySecret)
+            throws Exception {
 
-        this.paymentRepository = paymentRepository;
-    }
+        this.paymentRepository =
+                paymentRepository;
 
+        this.restTemplate =
+                restTemplate;
 
-    // =====================================================
-    // RAZORPAY CONFIGURATION CHECK
-    // =====================================================
-
-    @PostConstruct
-    public void checkRazorpayConfig() {
-
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "RAZORPAY CONFIG CHECK"
-        );
-
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "Key ID: [" + keyId + "]"
-        );
-
-        System.out.println(
-                "Key ID length: "
-                        + (keyId == null
-                        ? 0
-                        : keyId.length())
-        );
-
-        System.out.println(
-                "Key ID starts with rzp_test_: "
-                        + (keyId != null
-                        && keyId.startsWith("rzp_test_"))
-        );
-
-        System.out.println(
-                "Key Secret length: "
-                        + (keySecret == null
-                        ? 0
-                        : keySecret.length())
-        );
-
-        System.out.println(
-                "Key Secret first 4 chars: "
-                        + (keySecret == null
-                        ? "NULL"
-                        : keySecret.substring(
-                                0,
-                                Math.min(
-                                        4,
-                                        keySecret.length()
-                                )
-                        ))
-        );
-
-        System.out.println(
-                "Key Secret last 4 chars: "
-                        + (keySecret == null
-                        ? "NULL"
-                        : keySecret.substring(
-                                Math.max(
-                                        0,
-                                        keySecret.length() - 4
-                                )
-                        ))
-        );
-
-        System.out.println(
-                "===================================="
-        );
+        this.razorpayClient =
+                new RazorpayClient(
+                        keyId.trim(),
+                        keySecret.trim()
+                );
     }
 
 
@@ -122,112 +73,469 @@ public class PaymentService {
     // =====================================================
 
     public Payment createPayment(
-            CreatePaymentRequest request,
-            String idempotencyKey)
-            throws Exception {
+            CreatePaymentRequest request) {
 
         // -------------------------------------------------
-        // VALIDATE IDEMPOTENCY KEY
+        // VALIDATE AMOUNT
         // -------------------------------------------------
 
-        if (idempotencyKey == null
-                || idempotencyKey.isBlank()) {
+        if (request.getAmount() == null ||
+                request.getAmount() <= 0) {
 
             throw new IllegalArgumentException(
-                    "Idempotency-Key header is required"
+                    "Amount must be greater than 0"
             );
         }
 
 
         // -------------------------------------------------
-        // CHECK EXISTING PAYMENT
+        // VALIDATE ORDER ID
         // -------------------------------------------------
 
-        Payment existingPayment =
-                paymentRepository
-                        .findByIdempotencyKey(
-                                idempotencyKey
-                        )
-                        .orElse(null);
+        if (request.getOrderId() == null ||
+                request.getOrderId().isBlank()) {
 
-        if (existingPayment != null) {
+            throw new IllegalArgumentException(
+                    "Order ID is required"
+            );
+        }
+
+
+        // -------------------------------------------------
+        // VALIDATE USER
+        // -------------------------------------------------
+
+        if (request.getUserId() == null ||
+                request.getUserId().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "User ID is required"
+            );
+        }
+
+
+        // =================================================
+        // IDEMPOTENCY
+        // =================================================
+
+        String idempotencyKey =
+                request.getIdempotencyKey();
+
+
+        if (idempotencyKey != null &&
+                !idempotencyKey.isBlank()) {
+
+            Optional<Payment> existingPayment =
+                    paymentRepository
+                            .findByIdempotencyKey(
+                                    idempotencyKey
+                            );
+
+
+            if (existingPayment.isPresent()) {
+
+                System.out.println(
+                        "IDEMPOTENT REQUEST"
+                );
+
+                return existingPayment.get();
+            }
+
+        } else {
+
+            idempotencyKey =
+                    UUID.randomUUID().toString();
+        }
+
+
+        // =================================================
+        // CREATE PAYMENT OBJECT
+        // =================================================
+
+        Payment payment =
+                new Payment();
+
+
+        payment.setPaymentId(
+                "PAY-" + UUID.randomUUID()
+        );
+
+
+        payment.setOrderId(
+                request.getOrderId()
+        );
+
+
+        payment.setUserId(
+                request.getUserId()
+        );
+
+
+        payment.setAmount(
+                request.getAmount()
+        );
+
+
+        payment.setIdempotencyKey(
+                idempotencyKey
+        );
+
+
+        payment.setStatus(
+                "CREATED"
+        );
+
+
+        payment.setCreatedAt(
+                LocalDateTime.now()
+        );
+
+
+        // =================================================
+        // CREATE RAZORPAY ORDER
+        // =================================================
+
+        try {
+
+            int amountInPaise =
+                    (int) Math.round(
+                            request.getAmount() * 100
+                    );
+
+
+            JSONObject orderRequest =
+                    new JSONObject();
+
+
+            orderRequest.put(
+                    "amount",
+                    amountInPaise
+            );
+
+
+            orderRequest.put(
+                    "currency",
+                    "INR"
+            );
+
+
+            orderRequest.put(
+                    "receipt",
+                    payment.getPaymentId()
+            );
+
+
+            System.out.println();
+            System.out.println(
+                    "===================================="
+            );
 
             System.out.println(
-                    "IDEMPOTENT REQUEST: "
-                            + "Returning existing payment for key: "
-                            + idempotencyKey
+                    "CREATING RAZORPAY ORDER"
             );
 
-            return existingPayment;
+            System.out.println(
+                    "Internal Order ID: "
+                            + payment.getOrderId()
+            );
+
+            System.out.println(
+                    "Amount: ₹"
+                            + request.getAmount()
+            );
+
+            System.out.println(
+                    "Amount in paise: "
+                            + amountInPaise
+            );
+
+            System.out.println(
+                    "===================================="
+            );
+
+
+            Order razorpayOrder =
+                    razorpayClient.orders.create(
+                            orderRequest
+                    );
+
+
+            String razorpayOrderId =
+                    razorpayOrder.get("id");
+
+
+            payment.setRazorpayOrderId(
+                    razorpayOrderId
+            );
+
+
+            System.out.println(
+                    "RAZORPAY ORDER CREATED: "
+                            + razorpayOrderId
+            );
+
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            throw new RuntimeException(
+                    "Failed to create Razorpay order: "
+                            + e.getMessage(),
+                    e
+            );
         }
 
 
-        // -------------------------------------------------
-        // CONVERT AMOUNT TO PAISE
-        // -------------------------------------------------
+        // =================================================
+        // SAVE PAYMENT
+        // =================================================
 
-        int amountInPaise =
-                (int) Math.round(
-                        request.getAmount() * 100
+        Payment savedPayment =
+                paymentRepository.save(
+                        payment
                 );
 
 
-        // -------------------------------------------------
-        // CREATE RAZORPAY ORDER REQUEST
-        // -------------------------------------------------
-
-        JSONObject orderRequest =
-                new JSONObject();
-
-        orderRequest.put(
-                "amount",
-                amountInPaise
+        System.out.println();
+        System.out.println(
+                "PAYMENT CREATED"
         );
 
-        orderRequest.put(
-                "currency",
-                "INR"
+        System.out.println(
+                "Internal Order ID: "
+                        + savedPayment.getOrderId()
         );
 
-        orderRequest.put(
-                "receipt",
-                "receipt_"
-                        + System.currentTimeMillis()
+        System.out.println(
+                "Payment ID: "
+                        + savedPayment.getPaymentId()
         );
 
-
-        // -------------------------------------------------
-        // CREATE HEADERS
-        // -------------------------------------------------
-
-        HttpHeaders headers =
-                new HttpHeaders();
-
-        headers.setBasicAuth(
-                keyId.trim(),
-                keySecret.trim(),
-                StandardCharsets.UTF_8
+        System.out.println(
+                "Razorpay Order ID: "
+                        + savedPayment.getRazorpayOrderId()
         );
 
-        headers.setContentType(
-                MediaType.APPLICATION_JSON
+        System.out.println(
+                "Status: "
+                        + savedPayment.getStatus()
         );
 
 
-        // -------------------------------------------------
-        // CREATE HTTP REQUEST
-        // -------------------------------------------------
+        return savedPayment;
+    }
 
-        HttpEntity<String> entity =
-                new HttpEntity<>(
-                        orderRequest.toString(),
-                        headers
+
+    // =====================================================
+    // VERIFY PAYMENT
+    // =====================================================
+
+    public Payment verifyPayment(
+            VerifyPaymentRequest request) {
+
+        if (request.getRazorpayOrderId() == null ||
+                request.getRazorpayOrderId().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Razorpay Order ID is required"
+            );
+        }
+
+
+        if (request.getRazorpayPaymentId() == null ||
+                request.getRazorpayPaymentId().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Razorpay Payment ID is required"
+            );
+        }
+
+
+        if (request.getRazorpaySignature() == null ||
+                request.getRazorpaySignature().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Razorpay Signature is required"
+            );
+        }
+
+
+        // =================================================
+        // FIND PAYMENT
+        // =================================================
+
+        Payment payment =
+                paymentRepository
+                        .findByRazorpayOrderId(
+                                request.getRazorpayOrderId()
+                        )
+                        .orElseThrow(
+                                () -> new RuntimeException(
+                                        "Payment not found for Razorpay order: "
+                                                + request.getRazorpayOrderId()
+                                )
+                        );
+
+
+        // =================================================
+        // VERIFY SIGNATURE
+        // =================================================
+
+        try {
+
+            JSONObject attributes =
+                    new JSONObject();
+
+
+            attributes.put(
+                    "razorpay_order_id",
+                    request.getRazorpayOrderId()
+            );
+
+
+            attributes.put(
+                    "razorpay_payment_id",
+                    request.getRazorpayPaymentId()
+            );
+
+
+            attributes.put(
+                    "razorpay_signature",
+                    request.getRazorpaySignature()
+            );
+
+
+            boolean signatureValid =
+                    Utils.verifyPaymentSignature(
+                            attributes,
+                            razorpaySecret
+                    );
+
+
+            if (!signatureValid) {
+
+                throw new RuntimeException(
+                        "Invalid Razorpay payment signature"
+                );
+            }
+
+
+        } catch (Exception e) {
+
+            throw new RuntimeException(
+                    "Payment verification failed: "
+                            + e.getMessage(),
+                    e
+            );
+        }
+
+
+        // =================================================
+        // UPDATE PAYMENT
+        // =================================================
+
+        payment.setRazorpayPaymentId(
+                request.getRazorpayPaymentId()
+        );
+
+
+        payment.setPaymentId(
+                request.getRazorpayPaymentId()
+        );
+
+
+        payment.setStatus(
+                "VERIFIED"
+        );
+
+
+        payment.setVerifiedAt(
+                LocalDateTime.now()
+        );
+
+
+        Payment savedPayment =
+                paymentRepository.save(
+                        payment
                 );
 
 
-        // -------------------------------------------------
-        // LOG
-        // -------------------------------------------------
+        // =================================================
+        // UPDATE ORDER
+        // =================================================
+
+        try {
+
+            updateOrderAfterPayment(
+                    savedPayment
+            );
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    "===================================="
+            );
+
+            System.out.println(
+                    "WARNING"
+            );
+
+            System.out.println(
+                    "PAYMENT VERIFIED"
+            );
+
+            System.out.println(
+                    "BUT ORDER UPDATE FAILED"
+            );
+
+            System.out.println(
+                    "Order ID: "
+                            + savedPayment.getOrderId()
+            );
+
+            System.out.println(
+                    "Reason: "
+                            + e.getMessage()
+            );
+
+            System.out.println(
+                    "===================================="
+            );
+
+
+            throw new RuntimeException(
+                    "Payment verified, but order could not be updated to PAID: "
+                            + e.getMessage(),
+                    e
+            );
+        }
+
+
+        return savedPayment;
+    }
+
+
+    // =====================================================
+    // UPDATE ORDER AFTER PAYMENT
+    // =====================================================
+
+    private void updateOrderAfterPayment(
+            Payment payment) {
+
+        String orderUrl =
+                UriComponentsBuilder
+                        .fromUriString(
+                                "http://localhost:8083/api/orders/"
+                                        + payment.getOrderId()
+                                        + "/payment"
+                        )
+                        .queryParam(
+                                "paymentId",
+                                payment.getPaymentId()
+                        )
+                        .toUriString();
+
 
         System.out.println();
         System.out.println(
@@ -235,17 +543,22 @@ public class PaymentService {
         );
 
         System.out.println(
-                "CREATING RAZORPAY ORDER"
+                "UPDATING ORDER AFTER PAYMENT"
         );
 
         System.out.println(
-                "Amount: ₹"
-                        + request.getAmount()
+                "Order ID: "
+                        + payment.getOrderId()
         );
 
         System.out.println(
-                "Amount in paise: "
-                        + amountInPaise
+                "Payment ID: "
+                        + payment.getPaymentId()
+        );
+
+        System.out.println(
+                "URL: "
+                        + orderUrl
         );
 
         System.out.println(
@@ -253,72 +566,508 @@ public class PaymentService {
         );
 
 
-        // -------------------------------------------------
-        // CALL RAZORPAY
-        // -------------------------------------------------
-
-        ResponseEntity<String> response =
-                restTemplate.postForEntity(
-                        "https://api.razorpay.com/v1/orders",
-                        entity,
-                        String.class
-                );
-
-
-        // -------------------------------------------------
-        // READ RAZORPAY RESPONSE
-        // -------------------------------------------------
-
-        JSONObject razorpayOrder =
-                new JSONObject(
-                        response.getBody()
-                );
-
-        String razorpayOrderId =
-                razorpayOrder.getString("id");
+        restTemplate.put(
+                orderUrl,
+                null
+        );
 
 
         System.out.println(
-                "RAZORPAY ORDER CREATED: "
-                        + razorpayOrderId
+                "ORDER UPDATED TO PAID: "
+                        + payment.getOrderId()
+        );
+    }
+
+
+    // =====================================================
+    // UPDATE ORDER AS PAYMENT FAILED
+    // =====================================================
+
+    private void updateOrderAsPaymentFailed(
+            Payment payment) {
+
+        String orderUrl =
+                UriComponentsBuilder
+                        .fromUriString(
+                                "http://localhost:8083/api/orders/"
+                                        + payment.getOrderId()
+                                        + "/payment-failed"
+                        )
+                        .toUriString();
+
+
+        System.out.println();
+        System.out.println(
+                "===================================="
+        );
+
+        System.out.println(
+                "UPDATING ORDER AS PAYMENT FAILED"
+        );
+
+        System.out.println(
+                "Order ID: "
+                        + payment.getOrderId()
+        );
+
+        System.out.println(
+                "URL: "
+                        + orderUrl
+        );
+
+        System.out.println(
+                "===================================="
         );
 
 
+        restTemplate.put(
+                orderUrl,
+                null
+        );
+
+
+        System.out.println(
+                "ORDER UPDATED TO PAYMENT_FAILED: "
+                        + payment.getOrderId()
+        );
+    }
+
+
+    // =====================================================
+    // PHASE 4
+    // RECHECK PAYMENT STATUS
+    // =====================================================
+
+    public Payment recheckPaymentStatus(
+            String orderId) {
+
         // -------------------------------------------------
-        // CREATE DATABASE PAYMENT
+        // FIND PAYMENT
         // -------------------------------------------------
 
         Payment payment =
-                new Payment();
+                paymentRepository
+                        .findByOrderId(orderId)
+                        .orElseThrow(
+                                () -> new RuntimeException(
+                                        "Payment not found for order: "
+                                                + orderId
+                                )
+                        );
 
-        payment.setOrderId(
-                razorpayOrderId
+
+        // -------------------------------------------------
+        // CHECK RAZORPAY ORDER ID
+        // -------------------------------------------------
+
+        if (payment.getRazorpayOrderId() == null ||
+                payment.getRazorpayOrderId().isBlank()) {
+
+            throw new RuntimeException(
+                    "Razorpay Order ID not found"
+            );
+        }
+
+
+        try {
+
+            // =================================================
+            // ASK RAZORPAY FOR PAYMENTS
+            // =================================================
+
+            List<com.razorpay.Payment> razorpayPayments =
+                    razorpayClient.orders.fetchPayments(
+                            payment.getRazorpayOrderId()
+                    );
+
+
+            // =================================================
+            // NO PAYMENT FOUND
+            // =================================================
+
+            if (razorpayPayments == null ||
+                    razorpayPayments.isEmpty()) {
+
+                System.out.println();
+                System.out.println(
+                        "===================================="
+                );
+
+                System.out.println(
+                        "NO RAZORPAY PAYMENT FOUND"
+                );
+
+                System.out.println(
+                        "Order ID: "
+                                + orderId
+                );
+
+
+                // -------------------------------------------------
+                // CHECK WHETHER PAYMENT EXPIRED
+                // -------------------------------------------------
+
+                if (payment.getCreatedAt() != null) {
+
+                    long ageMinutes =
+                            Duration.between(
+                                    payment.getCreatedAt(),
+                                    LocalDateTime.now()
+                            ).toMinutes();
+
+
+                    System.out.println(
+                            "Payment age: "
+                                    + ageMinutes
+                                    + " minutes"
+                    );
+
+
+                    if (ageMinutes >=
+                            PAYMENT_EXPIRY_MINUTES) {
+
+                        // -----------------------------------------
+                        // MARK PAYMENT EXPIRED
+                        // -----------------------------------------
+
+                        payment.setStatus(
+                                "EXPIRED"
+                        );
+
+
+                        Payment savedPayment =
+                                paymentRepository.save(
+                                        payment
+                                );
+
+
+                        System.out.println(
+                                "PAYMENT EXPIRED"
+                        );
+
+
+                        // -----------------------------------------
+                        // MARK ORDER FAILED
+                        // -----------------------------------------
+
+                        try {
+
+                            updateOrderAsPaymentFailed(
+                                    savedPayment
+                            );
+
+                        } catch (Exception e) {
+
+                            System.out.println(
+                                    "ORDER UPDATE FAILED: "
+                                            + e.getMessage()
+                            );
+                        }
+
+
+                        return savedPayment;
+                    }
+                }
+
+
+                System.out.println(
+                        "PAYMENT STILL WAITING"
+                );
+
+                System.out.println(
+                        "===================================="
+                );
+
+
+                return payment;
+            }
+
+
+            // =================================================
+            // GET PAYMENT
+            // =================================================
+
+            com.razorpay.Payment razorpayPayment =
+                    razorpayPayments.get(0);
+
+
+            String razorpayStatus =
+                    razorpayPayment.get(
+                            "status"
+                    );
+
+
+            String razorpayPaymentId =
+                    razorpayPayment.get(
+                            "id"
+                    );
+
+
+            // =================================================
+            // LOG
+            // =================================================
+
+            System.out.println();
+            System.out.println(
+                    "===================================="
+            );
+
+            System.out.println(
+                    "RAZORPAY PAYMENT RECHECK"
+            );
+
+            System.out.println(
+                    "Internal Order ID: "
+                            + orderId
+            );
+
+            System.out.println(
+                    "Razorpay Order ID: "
+                            + payment.getRazorpayOrderId()
+            );
+
+            System.out.println(
+                    "Razorpay Payment ID: "
+                            + razorpayPaymentId
+            );
+
+            System.out.println(
+                    "Razorpay Status: "
+                            + razorpayStatus
+            );
+
+            System.out.println(
+                    "===================================="
+            );
+
+
+            // =================================================
+            // PAYMENT CAPTURED
+            // =================================================
+
+            if ("captured".equalsIgnoreCase(
+                    razorpayStatus
+            )) {
+
+                payment.setRazorpayPaymentId(
+                        razorpayPaymentId
+                );
+
+
+                payment.setPaymentId(
+                        razorpayPaymentId
+                );
+
+
+                payment.setStatus(
+                        "VERIFIED"
+                );
+
+
+                if (payment.getVerifiedAt() == null) {
+
+                    payment.setVerifiedAt(
+                            LocalDateTime.now()
+                    );
+                }
+
+
+                Payment savedPayment =
+                        paymentRepository.save(
+                                payment
+                        );
+
+
+                // -------------------------------------------------
+                // UPDATE ORDER
+                // -------------------------------------------------
+
+                try {
+
+                    updateOrderAfterPayment(
+                            savedPayment
+                    );
+
+                } catch (Exception e) {
+
+                    System.out.println(
+                            "ORDER UPDATE FAILED: "
+                                    + e.getMessage()
+                    );
+                }
+
+
+                System.out.println();
+                System.out.println(
+                        "PAYMENT RECHECK SUCCESSFUL"
+                );
+
+                System.out.println(
+                        "Payment ID: "
+                                + razorpayPaymentId
+                );
+
+                System.out.println(
+                        "Payment Status: VERIFIED"
+                );
+
+
+                return savedPayment;
+            }
+
+
+            // =================================================
+            // PAYMENT FAILED
+            // =================================================
+
+            if ("failed".equalsIgnoreCase(
+                    razorpayStatus
+            )) {
+
+                payment.setRazorpayPaymentId(
+                        razorpayPaymentId
+                );
+
+
+                payment.setStatus(
+                        "FAILED"
+                );
+
+
+                Payment savedPayment =
+                        paymentRepository.save(
+                                payment
+                        );
+
+
+                // -------------------------------------------------
+                // IMPORTANT FIX
+                // -------------------------------------------------
+
+                try {
+
+                    updateOrderAsPaymentFailed(
+                            savedPayment
+                    );
+
+                } catch (Exception e) {
+
+                    System.out.println(
+                            "ORDER UPDATE FAILED: "
+                                    + e.getMessage()
+                    );
+                }
+
+
+                System.out.println();
+                System.out.println(
+                        "===================================="
+                );
+
+                System.out.println(
+                        "PAYMENT RECHECK: FAILED"
+                );
+
+                System.out.println(
+                        "ORDER MARKED AS PAYMENT_FAILED"
+                );
+
+                System.out.println(
+                        "===================================="
+                );
+
+
+                return savedPayment;
+            }
+
+
+            // =================================================
+            // PAYMENT STILL PROCESSING
+            // =================================================
+
+            System.out.println();
+            System.out.println(
+                    "PAYMENT STILL PROCESSING"
+            );
+
+
+            return payment;
+
+
+        } catch (Exception e) {
+
+            throw new RuntimeException(
+                    "Failed to recheck Razorpay payment status: "
+                            + e.getMessage(),
+                    e
+            );
+        }
+    }
+
+
+    // =====================================================
+    // REFUND PAYMENT
+    // =====================================================
+
+    public Payment refundPayment(
+            Long id,
+            RefundPaymentRequest request) {
+
+        Payment payment =
+                paymentRepository
+                        .findById(id)
+                        .orElseThrow(
+                                () -> new RuntimeException(
+                                        "Payment not found"
+                                )
+                        );
+
+
+        if (!"VERIFIED".equalsIgnoreCase(
+                payment.getStatus()
+        ) &&
+                !"PAID".equalsIgnoreCase(
+                        payment.getStatus()
+                )) {
+
+            throw new RuntimeException(
+                    "Only successful payments can be refunded"
+            );
+        }
+
+
+        if (request.getAmount() == null ||
+                request.getAmount() <= 0) {
+
+            throw new IllegalArgumentException(
+                    "Refund amount must be greater than 0"
+            );
+        }
+
+
+        if (request.getAmount() >
+                payment.getAmount()) {
+
+            throw new IllegalArgumentException(
+                    "Refund amount cannot exceed payment amount"
+            );
+        }
+
+
+        payment.setRefundId(
+                "REF-" + UUID.randomUUID()
         );
 
-        payment.setAmount(
+
+        payment.setRefundAmount(
                 request.getAmount()
         );
 
-        payment.setUserId(
-                request.getUserId()
-        );
 
         payment.setStatus(
-                "CREATED"
+                "REFUNDED"
         );
 
-        payment.setCreatedAt(
-                LocalDateTime.now()
-        );
-
-        payment.setIdempotencyKey(
-                idempotencyKey
-        );
-
-
-        // -------------------------------------------------
-        // SAVE PAYMENT
-        // -------------------------------------------------
 
         return paymentRepository.save(
                 payment
@@ -328,75 +1077,108 @@ public class PaymentService {
 
     // =====================================================
     // UPDATE PAYMENT STATUS
+    // WEBHOOK
     // =====================================================
 
     public Payment updateStatus(
-            String orderId,
+            String razorpayOrderId,
             String status,
-            String paymentId) {
+            String razorpayPaymentId) {
 
         Payment payment =
-                findPaymentByOrderId(orderId);
+                paymentRepository
+                        .findByRazorpayOrderId(
+                                razorpayOrderId
+                        )
+                        .orElseThrow(
+                                () -> new RuntimeException(
+                                        "Payment not found for Razorpay order: "
+                                                + razorpayOrderId
+                                )
+                        );
 
 
-        // -------------------------------------------------
-        // UPDATE STATUS
-        // -------------------------------------------------
+        payment.setStatus(
+                status
+        );
 
-        if (status != null
-                && !status.isBlank()) {
 
-            payment.setStatus(
-                    status.trim().toUpperCase()
+        if (razorpayPaymentId != null &&
+                !razorpayPaymentId.isBlank()) {
+
+            payment.setRazorpayPaymentId(
+                    razorpayPaymentId
             );
-        }
-
-
-        // -------------------------------------------------
-        // UPDATE PAYMENT ID
-        // -------------------------------------------------
-
-        if (paymentId != null
-                && !paymentId.isBlank()) {
 
             payment.setPaymentId(
-                    paymentId.trim()
+                    razorpayPaymentId
             );
         }
 
 
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
+        if (("VERIFIED".equalsIgnoreCase(status) ||
+                "PAID".equalsIgnoreCase(status)) &&
+                payment.getVerifiedAt() == null) {
 
-        System.out.println(
-                "PAYMENT STATUS UPDATED"
-        );
-
-        System.out.println(
-                "Order ID: "
-                        + payment.getOrderId()
-        );
-
-        System.out.println(
-                "Status: "
-                        + payment.getStatus()
-        );
-
-        System.out.println(
-                "Payment ID: "
-                        + payment.getPaymentId()
-        );
-
-        System.out.println(
-                "===================================="
-        );
+            payment.setVerifiedAt(
+                    LocalDateTime.now()
+            );
+        }
 
 
-        return paymentRepository.save(
-                payment
-        );
+        Payment savedPayment =
+                paymentRepository.save(
+                        payment
+                );
+
+
+        // =================================================
+        // SUCCESSFUL PAYMENT
+        // =================================================
+
+        if ("VERIFIED".equalsIgnoreCase(status) ||
+                "PAID".equalsIgnoreCase(status)) {
+
+            try {
+
+                updateOrderAfterPayment(
+                        savedPayment
+                );
+
+            } catch (Exception e) {
+
+                System.out.println(
+                        "Order update failed: "
+                                + e.getMessage()
+                );
+            }
+        }
+
+
+        // =================================================
+        // FAILED PAYMENT
+        // =================================================
+
+        if ("FAILED".equalsIgnoreCase(status) ||
+                "EXPIRED".equalsIgnoreCase(status)) {
+
+            try {
+
+                updateOrderAsPaymentFailed(
+                        savedPayment
+                );
+
+            } catch (Exception e) {
+
+                System.out.println(
+                        "Order update failed: "
+                                + e.getMessage()
+                );
+            }
+        }
+
+
+        return savedPayment;
     }
 
 
@@ -411,189 +1193,28 @@ public class PaymentService {
 
 
     // =====================================================
+    // GET PAYMENT BY DATABASE ID
+    // =====================================================
+
+    public Optional<Payment> getPaymentById(
+            Long id) {
+
+        return paymentRepository.findById(
+                id
+        );
+    }
+
+
+    // =====================================================
     // GET PAYMENT BY ORDER ID
     // =====================================================
 
-    public Payment getPaymentByOrderId(
+    public Optional<Payment> getPaymentByOrderId(
             String orderId) {
 
-        return findPaymentByOrderId(
+        return paymentRepository.findByOrderId(
                 orderId
         );
-    }
-
-
-    // =====================================================
-    // COMMON ORDER ID LOOKUP
-    // =====================================================
-    //
-    // FIX:
-    //
-    // 1. Try direct repository lookup.
-    // 2. If direct lookup fails, perform a normalized
-    //    comparison against the existing database records.
-    //
-    // This protects against:
-    //
-    // - leading/trailing whitespace
-    // - hidden whitespace characters
-    // - case differences
-    // - old database records
-    // - values created before the current repository logic
-    //
-    // =====================================================
-
-    private Payment findPaymentByOrderId(
-            String orderId) {
-
-        if (orderId == null
-                || orderId.isBlank()) {
-
-            throw new RuntimeException(
-                    "Order ID is required"
-            );
-        }
-
-        String requestedOrderId =
-                normalizeOrderId(orderId);
-
-
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "PAYMENT LOOKUP"
-        );
-
-        System.out.println(
-                "Requested Order ID: ["
-                        + requestedOrderId
-                        + "]"
-        );
-
-        System.out.println(
-                "===================================="
-        );
-
-
-        // =================================================
-        // STEP 1: NORMAL DATABASE LOOKUP
-        // =================================================
-
-        Payment payment =
-                paymentRepository
-                        .findByOrderId(
-                                requestedOrderId
-                        )
-                        .orElse(null);
-
-
-        if (payment != null) {
-
-            System.out.println(
-                    "PAYMENT FOUND USING DIRECT LOOKUP: "
-                            + payment.getOrderId()
-            );
-
-            return payment;
-        }
-
-
-        // =================================================
-        // STEP 2: FALLBACK NORMALIZED LOOKUP
-        // =================================================
-        //
-        // If the database equality lookup failed,
-        // check the actual Payment objects already stored
-        // in the database.
-        //
-        // =================================================
-
-        System.out.println(
-                "DIRECT LOOKUP FAILED"
-        );
-
-        System.out.println(
-                "STARTING NORMALIZED FALLBACK LOOKUP..."
-        );
-
-
-        List<Payment> allPayments =
-                paymentRepository.findAll();
-
-
-        System.out.println(
-                "TOTAL PAYMENTS IN DATABASE: "
-                        + allPayments.size()
-        );
-
-
-        for (Payment candidate :
-                allPayments) {
-
-            String candidateOrderId =
-                    normalizeOrderId(
-                            candidate.getOrderId()
-                    );
-
-
-            System.out.println(
-                    "Comparing requested ["
-                            + requestedOrderId
-                            + "] with database ["
-                            + candidateOrderId
-                            + "]"
-            );
-
-
-            if (requestedOrderId.equalsIgnoreCase(
-                    candidateOrderId)) {
-
-                System.out.println(
-                        "PAYMENT FOUND USING FALLBACK LOOKUP: "
-                                + candidate.getOrderId()
-                );
-
-                return candidate;
-            }
-        }
-
-
-        // =================================================
-        // STEP 3: NOT FOUND
-        // =================================================
-
-        System.out.println(
-                "PAYMENT NOT FOUND FOR ORDER: ["
-                        + requestedOrderId
-                        + "]"
-        );
-
-
-        throw new RuntimeException(
-                "Payment not found for order: "
-                        + requestedOrderId
-        );
-    }
-
-
-    // =====================================================
-    // NORMALIZE ORDER ID
-    // =====================================================
-
-    private String normalizeOrderId(
-            String orderId) {
-
-        if (orderId == null) {
-            return "";
-        }
-
-        return orderId
-                .replace("\u200B", "")
-                .replace("\uFEFF", "")
-                .trim();
     }
 
 
@@ -604,8 +1225,9 @@ public class PaymentService {
     public List<Payment> getPaymentsByUser(
             String userId) {
 
-        return paymentRepository
-                .findByUserId(userId);
+        return paymentRepository.findByUserId(
+                userId
+        );
     }
 
 
@@ -616,602 +1238,8 @@ public class PaymentService {
     public List<Payment> getPaymentsByStatus(
             String status) {
 
-        return paymentRepository
-                .findByStatus(status);
-    }
-
-
-    // =====================================================
-    // REFUND PAYMENT
-    // =====================================================
-
-    public Payment refundPayment(
-            String orderId)
-            throws Exception {
-
-        Payment payment =
-                findPaymentByOrderId(orderId);
-
-
-        // -------------------------------------------------
-        // 1. ALREADY REFUNDED CHECK
-        // -------------------------------------------------
-
-        if ("REFUNDED".equalsIgnoreCase(
-                payment.getStatus())) {
-
-            throw new RuntimeException(
-                    "Payment has already been refunded"
-            );
-        }
-
-
-        // -------------------------------------------------
-        // 2. PAYMENT MUST BE PAID
-        // -------------------------------------------------
-
-        if (!"PAID".equalsIgnoreCase(
-                payment.getStatus())) {
-
-            throw new RuntimeException(
-                    "Only PAID payments can be refunded"
-            );
-        }
-
-
-        // -------------------------------------------------
-        // 3. NO RAZORPAY PAYMENT ID
-        // -------------------------------------------------
-
-        if (payment.getPaymentId() == null
-                || payment.getPaymentId().isBlank()) {
-
-            System.out.println();
-            System.out.println(
-                    "===================================="
-            );
-
-            System.out.println(
-                    "TEST REFUND MODE"
-            );
-
-            System.out.println(
-                    "NO RAZORPAY PAYMENT ID"
-            );
-
-            System.out.println(
-                    "Order ID: "
-                            + payment.getOrderId()
-            );
-
-            System.out.println(
-                    "Amount: ₹"
-                            + payment.getAmount()
-            );
-
-
-            String testRefundId =
-                    "test_refund_"
-                            + System.currentTimeMillis();
-
-
-            payment.setRefundId(
-                    testRefundId
-            );
-
-            payment.setRefundAmount(
-                    payment.getAmount()
-            );
-
-            payment.setStatus(
-                    "REFUNDED"
-            );
-
-
-            Payment savedPayment =
-                    paymentRepository.save(
-                            payment
-                    );
-
-
-            System.out.println(
-                    "TEST REFUND SUCCESSFUL"
-            );
-
-            System.out.println(
-                    "Refund ID: "
-                            + testRefundId
-            );
-
-            System.out.println(
-                    "===================================="
-            );
-
-
-            return savedPayment;
-        }
-
-
-        // -------------------------------------------------
-        // 4. CALCULATE REFUND AMOUNT
-        // -------------------------------------------------
-
-        int refundAmountInPaise =
-                (int) Math.round(
-                        payment.getAmount() * 100
-                );
-
-
-        // =================================================
-        // SPECIAL TEST REFUND
-        // =================================================
-
-        if ("pay_test123".equalsIgnoreCase(
-                payment.getPaymentId())) {
-
-            System.out.println();
-            System.out.println(
-                    "===================================="
-            );
-
-            System.out.println(
-                    "TEST REFUND MODE"
-            );
-
-            System.out.println(
-                    "Payment ID: "
-                            + payment.getPaymentId()
-            );
-
-            System.out.println(
-                    "Amount: ₹"
-                            + payment.getAmount()
-            );
-
-
-            String testRefundId =
-                    "test_refund_"
-                            + System.currentTimeMillis();
-
-
-            payment.setRefundId(
-                    testRefundId
-            );
-
-            payment.setRefundAmount(
-                    payment.getAmount()
-            );
-
-            payment.setStatus(
-                    "REFUNDED"
-            );
-
-
-            Payment savedPayment =
-                    paymentRepository.save(
-                            payment
-                    );
-
-
-            System.out.println(
-                    "TEST REFUND SUCCESSFUL"
-            );
-
-            System.out.println(
-                    "Order ID: "
-                            + orderId
-            );
-
-            System.out.println(
-                    "Payment ID: "
-                            + payment.getPaymentId()
-            );
-
-            System.out.println(
-                    "Refund ID: "
-                            + testRefundId
-            );
-
-            System.out.println(
-                    "Refund Amount: ₹"
-                            + payment.getAmount()
-            );
-
-            System.out.println(
-                    "===================================="
-            );
-
-
-            return savedPayment;
-        }
-
-
-        // =================================================
-        // REAL RAZORPAY REFUND
-        // =================================================
-
-        JSONObject refundRequest =
-                new JSONObject();
-
-        refundRequest.put(
-                "amount",
-                refundAmountInPaise
+        return paymentRepository.findByStatus(
+                status
         );
-
-
-        // -------------------------------------------------
-        // CREATE AUTH HEADERS
-        // -------------------------------------------------
-
-        HttpHeaders headers =
-                new HttpHeaders();
-
-        headers.setBasicAuth(
-                keyId.trim(),
-                keySecret.trim(),
-                StandardCharsets.UTF_8
-        );
-
-        headers.setContentType(
-                MediaType.APPLICATION_JSON
-        );
-
-
-        // -------------------------------------------------
-        // CREATE HTTP REQUEST
-        // -------------------------------------------------
-
-        HttpEntity<String> entity =
-                new HttpEntity<>(
-                        refundRequest.toString(),
-                        headers
-                );
-
-
-        // -------------------------------------------------
-        // RAZORPAY REFUND URL
-        // -------------------------------------------------
-
-        String refundUrl =
-                "https://api.razorpay.com/v1/payments/"
-                        + payment.getPaymentId()
-                        + "/refund";
-
-
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "CALLING RAZORPAY REFUND API"
-        );
-
-        System.out.println(
-                "Payment ID: "
-                        + payment.getPaymentId()
-        );
-
-        System.out.println(
-                "Refund Amount: ₹"
-                        + payment.getAmount()
-        );
-
-        System.out.println(
-                "===================================="
-        );
-
-
-        // -------------------------------------------------
-        // CALL RAZORPAY
-        // -------------------------------------------------
-
-        ResponseEntity<String> response =
-                restTemplate.postForEntity(
-                        refundUrl,
-                        entity,
-                        String.class
-                );
-
-
-        // -------------------------------------------------
-        // READ RESPONSE
-        // -------------------------------------------------
-
-        JSONObject refund =
-                new JSONObject(
-                        response.getBody()
-                );
-
-
-        String refundId =
-                refund.getString("id");
-
-
-        int actualRefundAmountInPaise =
-                refund.getInt("amount");
-
-
-        double actualRefundAmount =
-                actualRefundAmountInPaise
-                        / 100.0;
-
-
-        // -------------------------------------------------
-        // UPDATE DATABASE
-        // -------------------------------------------------
-
-        payment.setRefundId(
-                refundId
-        );
-
-        payment.setRefundAmount(
-                actualRefundAmount
-        );
-
-        payment.setStatus(
-                "REFUNDED"
-        );
-
-
-        Payment savedPayment =
-                paymentRepository.save(
-                        payment
-                );
-
-
-        // -------------------------------------------------
-        // LOG SUCCESS
-        // -------------------------------------------------
-
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "REFUND SUCCESSFUL"
-        );
-
-        System.out.println(
-                "Order ID: "
-                        + orderId
-        );
-
-        System.out.println(
-                "Payment ID: "
-                        + payment.getPaymentId()
-        );
-
-        System.out.println(
-                "Refund ID: "
-                        + refundId
-        );
-
-        System.out.println(
-                "Refund Amount: ₹"
-                        + actualRefundAmount
-        );
-
-        System.out.println(
-                "===================================="
-        );
-
-
-        return savedPayment;
-    }
-
-
-    // =====================================================
-    // CRON JOB
-    // Check CREATED payments every 1 minute
-    // =====================================================
-
-    @Scheduled(fixedRate = 60000)
-    public void checkStalePayments() {
-
-        System.out.println();
-        System.out.println(
-                "===================================="
-        );
-
-        System.out.println(
-                "CRON JOB: CHECKING PAYMENT STATUS"
-        );
-
-        System.out.println(
-                "===================================="
-        );
-
-
-        try {
-
-            List<Payment> createdPayments =
-                    paymentRepository
-                            .findByStatus("CREATED");
-
-
-            System.out.println(
-                    "CREATED PAYMENTS FOUND: "
-                            + createdPayments.size()
-            );
-
-
-            for (Payment payment :
-                    createdPayments) {
-
-                try {
-
-                    // -------------------------------------------------
-                    // CHECK EXPIRY
-                    // -------------------------------------------------
-
-                    if (payment.getCreatedAt() == null) {
-
-                        System.out.println(
-                                "CREATED AT IS NULL FOR PAYMENT: "
-                                        + payment.getOrderId()
-                        );
-
-                        continue;
-                    }
-
-
-                    LocalDateTime expiryTime =
-                            payment.getCreatedAt()
-                                    .plusMinutes(10);
-
-
-                    if (LocalDateTime.now()
-                            .isAfter(expiryTime)) {
-
-                        payment.setStatus(
-                                "EXPIRED"
-                        );
-
-                        paymentRepository.save(
-                                payment
-                        );
-
-
-                        System.out.println(
-                                "PAYMENT EXPIRED: "
-                                        + payment.getOrderId()
-                        );
-
-
-                        continue;
-                    }
-
-
-                    // -------------------------------------------------
-                    // CREATE RAZORPAY AUTH HEADERS
-                    // -------------------------------------------------
-
-                    HttpHeaders headers =
-                            new HttpHeaders();
-
-                    headers.setBasicAuth(
-                            keyId.trim(),
-                            keySecret.trim(),
-                            StandardCharsets.UTF_8
-                    );
-
-
-                    // -------------------------------------------------
-                    // RAZORPAY ORDER URL
-                    // -------------------------------------------------
-
-                    String orderUrl =
-                            "https://api.razorpay.com/v1/orders/"
-                                    + payment.getOrderId();
-
-
-                    HttpEntity<String> entity =
-                            new HttpEntity<>(
-                                    headers
-                            );
-
-
-                    // -------------------------------------------------
-                    // GET ORDER FROM RAZORPAY
-                    // -------------------------------------------------
-
-                    ResponseEntity<String> response =
-                            restTemplate.exchange(
-                                    orderUrl,
-                                    HttpMethod.GET,
-                                    entity,
-                                    String.class
-                            );
-
-
-                    // -------------------------------------------------
-                    // READ RAZORPAY RESPONSE
-                    // -------------------------------------------------
-
-                    JSONObject razorpayOrder =
-                            new JSONObject(
-                                    response.getBody()
-                            );
-
-
-                    String razorpayStatus =
-                            razorpayOrder.getString(
-                                    "status"
-                            );
-
-
-                    System.out.println(
-                            "Order: "
-                                    + payment.getOrderId()
-                                    + " | Razorpay Status: "
-                                    + razorpayStatus
-                    );
-
-
-                    // -------------------------------------------------
-                    // UPDATE STATUS
-                    // -------------------------------------------------
-
-                    if ("paid".equalsIgnoreCase(
-                            razorpayStatus)) {
-
-                        payment.setStatus(
-                                "PAID"
-                        );
-
-                        paymentRepository.save(
-                                payment
-                        );
-
-
-                        System.out.println(
-                                "PAYMENT UPDATED TO PAID: "
-                                        + payment.getOrderId()
-                        );
-
-
-                    } else if (
-                            "attempted".equalsIgnoreCase(
-                                    razorpayStatus)) {
-
-                        System.out.println(
-                                "PAYMENT ATTEMPTED: "
-                                        + payment.getOrderId()
-                        );
-
-
-                    } else {
-
-                        System.out.println(
-                                "PAYMENT STILL PENDING: "
-                                        + payment.getOrderId()
-                        );
-                    }
-
-
-                } catch (Exception e) {
-
-                    System.out.println(
-                            "COULD NOT CHECK ORDER: "
-                                    + payment.getOrderId()
-                    );
-
-                    System.out.println(
-                            e.getMessage()
-                    );
-                }
-            }
-
-
-        } catch (Exception e) {
-
-            System.out.println(
-                    "CRON JOB FAILED"
-            );
-
-            e.printStackTrace();
-        }
     }
 }

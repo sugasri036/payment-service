@@ -1,166 +1,1000 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Payment Service Test</title>
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
 
+    <title>Investra - Payment</title>
+
+
+    <!-- Razorpay Checkout -->
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 
+
     <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+
         body {
-            font-family: Arial, sans-serif;
+
+            margin: 0;
+
+            min-height: 100vh;
+
             display: flex;
+
             justify-content: center;
+
             align-items: center;
-            height: 100vh;
-            background: #f5f5f5;
+
+            font-family:
+                Arial,
+                Helvetica,
+                sans-serif;
+
+            background: #f4f7fb;
         }
 
-        .container {
+
+        .payment-card {
+
+            width: 440px;
+
             background: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+
+            border-radius: 20px;
+
+            padding: 44px 48px;
+
+            box-shadow:
+                0 15px 40px
+                rgba(0, 0, 0, 0.08);
+
             text-align: center;
-            width: 350px;
         }
 
-        button {
-            background: #3399cc;
+
+        .payment-icon {
+
+            width: 62px;
+
+            height: 62px;
+
+            margin: 0 auto 18px;
+
+            display: flex;
+
+            justify-content: center;
+
+            align-items: center;
+
+            background: #123875;
+
             color: white;
-            border: none;
-            padding: 12px 25px;
-            border-radius: 5px;
-            cursor: pointer;
+
+            border-radius: 15px;
+
+            font-size: 30px;
+
+            font-weight: bold;
+        }
+
+
+        h1 {
+
+            margin: 0;
+
+            color: #123875;
+
+            font-size: 28px;
+        }
+
+
+        .subtitle {
+
+            margin-top: 12px;
+
+            margin-bottom: 30px;
+
+            color: #6b83a5;
+
             font-size: 16px;
+
+            line-height: 1.4;
         }
 
-        button:hover {
-            opacity: 0.9;
+
+        .form-container {
+
+            text-align: left;
         }
 
-        #message {
-            margin-top: 20px;
+
+        label {
+
+            display: block;
+
+            margin-bottom: 10px;
+
+            color: #123875;
+
+            font-size: 16px;
+
+            font-weight: bold;
         }
+
+
+        .amount-box {
+
+            width: 100%;
+
+            height: 58px;
+
+            display: flex;
+
+            align-items: center;
+
+            padding: 0 16px;
+
+            border:
+                1px solid #d7e2f0;
+
+            border-radius: 12px;
+
+            background: #f8faff;
+
+            margin-bottom: 20px;
+
+            transition: 0.2s;
+        }
+
+
+        .amount-box:focus-within {
+
+            border-color: #2878ce;
+
+            box-shadow:
+                0 0 0 3px
+                rgba(40, 120, 206, 0.1);
+        }
+
+
+        .rupee {
+
+            color: #123875;
+
+            font-size: 22px;
+
+            font-weight: bold;
+
+            margin-right: 12px;
+        }
+
+
+        #amount {
+
+            width: 100%;
+
+            border: none;
+
+            outline: none;
+
+            background: transparent;
+
+            color: #123875;
+
+            font-size: 20px;
+        }
+
+
+        #amount::placeholder {
+
+            color: #9aaac0;
+        }
+
+
+        .pay-button {
+
+            width: 100%;
+
+            height: 58px;
+
+            border: none;
+
+            border-radius: 12px;
+
+            background: #2878ce;
+
+            color: white;
+
+            font-size: 17px;
+
+            font-weight: bold;
+
+            cursor: pointer;
+
+            transition: 0.2s;
+        }
+
+
+        .pay-button:hover {
+
+            background: #1769bd;
+        }
+
+
+        .pay-button:disabled {
+
+            background: #9bb8d8;
+
+            cursor: not-allowed;
+        }
+
+
+        .message {
+
+            display: none;
+
+            margin-top: 24px;
+
+            padding: 15px;
+
+            border-radius: 10px;
+
+            line-height: 1.5;
+        }
+
+
+        .message.error {
+
+            display: block;
+
+            background: #fff1f1;
+
+            color: #d93025;
+        }
+
+
+        .message.success {
+
+            display: block;
+
+            background: #eefaf3;
+
+            color: #168044;
+        }
+
+
+        .message-title {
+
+            font-size: 17px;
+
+            font-weight: bold;
+
+            margin-bottom: 5px;
+        }
+
+
+        .message-text {
+
+            font-size: 14px;
+        }
+
+
+        @media (max-width: 500px) {
+
+            .payment-card {
+
+                width: 90%;
+
+                padding: 35px 25px;
+            }
+        }
+
     </style>
+
 </head>
+
 
 <body>
 
-<div class="container">
 
-    <h2>Payment Service</h2>
+<div class="payment-card">
 
-    <p>Test Amount</p>
 
-    <h1>₹500</h1>
+    <div class="payment-icon">
+        ₹
+    </div>
 
-    <button onclick="createPayment()">
-        Pay ₹500
-    </button>
 
-    <div id="message"></div>
+    <h1>
+        Make a Payment
+    </h1>
+
+
+    <p class="subtitle">
+        Enter the amount you want to pay
+    </p>
+
+
+    <div class="form-container">
+
+
+        <label for="amount">
+            Amount
+        </label>
+
+
+        <div class="amount-box">
+
+
+            <span class="rupee">
+                ₹
+            </span>
+
+
+            <input
+                type="number"
+                id="amount"
+                placeholder="Enter amount"
+                min="1"
+                step="0.01"
+            >
+
+
+        </div>
+
+
+        <button
+            class="pay-button"
+            id="payButton"
+            onclick="makePayment()"
+        >
+
+            Pay Now
+
+        </button>
+
+
+    </div>
+
+
+    <div
+        id="message"
+        class="message"
+    >
+
+        <div
+            id="messageTitle"
+            class="message-title"
+        ></div>
+
+
+        <div
+            id="messageText"
+            class="message-text"
+        ></div>
+
+    </div>
+
 
 </div>
 
+
+
 <script>
 
-async function createPayment() {
 
-    document.getElementById("message").innerText =
-        "Creating payment order...";
+async function makePayment() {
+
+
+    const amountInput =
+        document.getElementById(
+            "amount"
+        );
+
+
+    const payButton =
+        document.getElementById(
+            "payButton"
+        );
+
+
+    const amount =
+        parseFloat(
+            amountInput.value
+        );
+
+
+    // =====================================================
+    // VALIDATE AMOUNT
+    // =====================================================
+
+    if (
+        isNaN(amount) ||
+        amount <= 0
+    ) {
+
+        showError(
+            "Invalid Amount",
+            "Please enter a valid amount."
+        );
+
+        return;
+    }
+
+
+    if (amount < 1) {
+
+        showError(
+            "Invalid Amount",
+            "Minimum payment amount is ₹1."
+        );
+
+        return;
+    }
+
+
+    // =====================================================
+    // DISABLE BUTTON
+    // =====================================================
+
+    payButton.disabled = true;
+
+    payButton.innerText =
+        "Creating Order...";
+
+
+    hideMessage();
+
 
     try {
 
-        // Create payment order from our Spring Boot backend
-        const response = await fetch(
-            "/payments/create",
-            {
-                method: "POST",
 
-                headers: {
-                    "Content-Type": "application/json"
+        // =================================================
+        // STEP 1
+        // CREATE PAYMENT IN OUR BACKEND
+        // =================================================
+
+        const response =
+            await fetch(
+                "/api/payments",
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json"
+
+                    },
+
+
+                    body:
+                        JSON.stringify({
+
+                            amount:
+                                amount,
+
+                            userId:
+                                "USER001",
+
+                            orderId:
+                                "ORD-" +
+                                Date.now(),
+
+                            idempotencyKey:
+                                "WEB-" +
+                                crypto.randomUUID()
+
+                        })
+
+                }
+            );
+
+
+        // =================================================
+        // CHECK BACKEND RESPONSE
+        // =================================================
+
+        if (!response.ok) {
+
+            const errorText =
+                await response.text();
+
+
+            throw new Error(
+                errorText ||
+                "Payment order creation failed."
+            );
+        }
+
+
+        const payment =
+            await response.json();
+
+
+        console.log(
+            "Backend payment response:",
+            payment
+        );
+
+
+        // =================================================
+        // GET RAZORPAY ORDER ID
+        // =================================================
+
+        const razorpayOrderId =
+            payment.razorpayOrderId;
+
+
+        if (!razorpayOrderId) {
+
+            console.error(
+                "Backend response:",
+                payment
+            );
+
+
+            throw new Error(
+                "Backend did not return Razorpay Order ID."
+            );
+        }
+
+
+        console.log(
+            "Razorpay Order ID:",
+            razorpayOrderId
+        );
+
+
+        // =================================================
+        // STEP 2
+        // OPEN RAZORPAY CHECKOUT
+        // =================================================
+
+        payButton.innerText =
+            "Opening Payment...";
+
+
+        /*
+         * IMPORTANT:
+         *
+         * This MUST be your real Razorpay TEST KEY ID.
+         *
+         * Do NOT put the secret key here.
+         *
+         * Your browser console showed:
+         *
+         * YOUR_RAZOR...
+         *
+         * That is WRONG and causes 401 Unauthorized.
+         */
+
+        const razorpayKey =
+            "rzp_test_TQL7WW3J6KMWr0";
+
+
+        const options = {
+
+
+            key:
+                razorpayKey,
+
+
+            /*
+             * Razorpay amount is in PAISE.
+             *
+             * User enters ₹650
+             *
+             * 650 × 100
+             *
+             * = 65000
+             */
+
+            amount:
+                Math.round(
+                    amount * 100
+                ),
+
+
+            currency:
+                "INR",
+
+
+            name:
+                "Investra",
+
+
+            description:
+                "Investment Payment",
+
+
+            order_id:
+                razorpayOrderId,
+
+
+            // =================================================
+            // SUCCESS HANDLER
+            // =================================================
+
+            handler:
+                async function(
+                    razorpayResponse
+                ) {
+
+
+                    console.log(
+                        "Razorpay Response:",
+                        razorpayResponse
+                    );
+
+
+                    try {
+
+
+                        // =====================================
+                        // STEP 3
+                        // VERIFY PAYMENT IN BACKEND
+                        // =====================================
+
+                        const verifyResponse =
+                            await fetch(
+                                "/api/payments/verify",
+                                {
+
+                                    method: "POST",
+
+                                    headers: {
+
+                                        "Content-Type":
+                                            "application/json"
+
+                                    },
+
+
+                                    body:
+                                        JSON.stringify({
+
+                                            razorpayOrderId:
+                                                razorpayResponse
+                                                    .razorpay_order_id,
+
+                                            razorpayPaymentId:
+                                                razorpayResponse
+                                                    .razorpay_payment_id,
+
+                                            razorpaySignature:
+                                                razorpayResponse
+                                                    .razorpay_signature
+
+                                        })
+
+                                }
+                            );
+
+
+                        const verifyText =
+                            await verifyResponse.text();
+
+
+                        console.log(
+                            "Verification response:",
+                            verifyText
+                        );
+
+
+                        if (!verifyResponse.ok) {
+
+                            throw new Error(
+                                verifyText ||
+                                "Payment verification failed."
+                            );
+                        }
+
+
+                        // =====================================
+                        // SUCCESS
+                        // =====================================
+
+                        showSuccess(
+                            "Payment Successful",
+                            "Your payment of ₹"
+                                + amount
+                                + " was completed and verified."
+                        );
+
+
+                        payButton.innerText =
+                            "Payment Successful";
+
+
+                    } catch (error) {
+
+
+                        console.error(
+                            "Verification error:",
+                            error
+                        );
+
+
+                        showError(
+                            "Verification Failed",
+                            error.message
+                        );
+
+
+                        payButton.disabled =
+                            false;
+
+
+                        payButton.innerText =
+                            "Pay Now";
+                    }
+
                 },
 
-                body: JSON.stringify({
-                    amount: 500,
-                    userId: "USER001"
-                })
+
+            // =================================================
+            // PREFILL
+            // =================================================
+
+            prefill: {
+
+                name:
+                    "Test User",
+
+                email:
+                    "test@example.com",
+
+                contact:
+                    "9999999999"
+
+            },
+
+
+            // =================================================
+            // NOTES
+            // =================================================
+
+            notes: {
+
+                userId:
+                    "USER001"
+
+            },
+
+
+            // =================================================
+            // THEME
+            // =================================================
+
+            theme: {
+
+                color:
+                    "#2878ce"
+
+            },
+
+
+            // =================================================
+            // CHECKOUT CLOSED
+            // =================================================
+
+            modal: {
+
+                ondismiss:
+                    function() {
+
+                        console.log(
+                            "Razorpay Checkout closed"
+                        );
+
+
+                        payButton.disabled =
+                            false;
+
+
+                        payButton.innerText =
+                            "Pay Now";
+
+                    }
+
+            }
+
+        };
+
+
+        // =================================================
+        // CREATE RAZORPAY INSTANCE
+        // =================================================
+
+        const razorpay =
+            new Razorpay(
+                options
+            );
+
+
+        // =================================================
+        // PAYMENT FAILED
+        // =================================================
+
+        razorpay.on(
+            "payment.failed",
+            function(response) {
+
+
+                console.error(
+                    "Razorpay payment failed:",
+                    response.error
+                );
+
+
+                showError(
+                    "Payment Failed",
+                    response.error.description ||
+                    "Payment could not be completed."
+                );
+
+
+                payButton.disabled =
+                    false;
+
+
+                payButton.innerText =
+                    "Pay Now";
+
             }
         );
 
-        if (!response.ok) {
-            throw new Error("Failed to create payment order");
-        }
 
-        const payment = await response.json();
-
-        console.log("Payment created:", payment);
-
-        document.getElementById("message").innerText =
-            "Opening Razorpay...";
-
-        // Razorpay Checkout
-        const options = {
-
-            key: "rzp_test_TNgZIG40dCDasX",
-
-            amount: payment.amount * 100,
-
-            currency: "INR",
-
-            name: "Payment Service",
-
-            description: "Test Payment",
-
-            order_id: payment.orderId,
-
-            handler: function (response) {
-
-                console.log("Payment successful:", response);
-
-                document.getElementById("message").innerHTML =
-                    "<b>Payment successful!</b><br>" +
-                    "Payment ID: " +
-                    response.razorpay_payment_id;
-            },
-
-            prefill: {
-                name: "Test User",
-                email: "test@example.com",
-                contact: "9999999999"
-            },
-
-            theme: {
-                color: "#3399cc"
-            }
-        };
-
-        const razorpay = new Razorpay(options);
-
-        razorpay.on("payment.failed", function (response) {
-
-            console.error("Payment failed:", response.error);
-
-            document.getElementById("message").innerHTML =
-                "<b>Payment failed</b><br>" +
-                response.error.description;
-        });
+        // =================================================
+        // OPEN RAZORPAY
+        // =================================================
 
         razorpay.open();
 
+
     } catch (error) {
 
-        console.error(error);
 
-        document.getElementById("message").innerText =
-            "Error: " + error.message;
+        console.error(
+            "Payment creation error:",
+            error
+        );
+
+
+        showError(
+            "Error",
+            error.message
+        );
+
+
+        payButton.disabled =
+            false;
+
+
+        payButton.innerText =
+            "Pay Now";
     }
 }
 
+
+
+// =========================================================
+// SHOW ERROR
+// =========================================================
+
+function showError(
+    title,
+    text
+) {
+
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    const messageTitle =
+        document.getElementById(
+            "messageTitle"
+        );
+
+
+    const messageText =
+        document.getElementById(
+            "messageText"
+        );
+
+
+    message.className =
+        "message error";
+
+
+    messageTitle.innerText =
+        title;
+
+
+    messageText.innerText =
+        text;
+}
+
+
+
+// =========================================================
+// SHOW SUCCESS
+// =========================================================
+
+function showSuccess(
+    title,
+    text
+) {
+
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    const messageTitle =
+        document.getElementById(
+            "messageTitle"
+        );
+
+
+    const messageText =
+        document.getElementById(
+            "messageText"
+        );
+
+
+    message.className =
+        "message success";
+
+
+    messageTitle.innerText =
+        title;
+
+
+    messageText.innerText =
+        text;
+}
+
+
+
+// =========================================================
+// HIDE MESSAGE
+// =========================================================
+
+function hideMessage() {
+
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    message.className =
+        "message";
+}
+
+
 </script>
 
+
 </body>
+
 </html>

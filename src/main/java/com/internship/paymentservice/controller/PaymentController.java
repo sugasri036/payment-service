@@ -1,15 +1,20 @@
 package com.internship.paymentservice.controller;
 
 import com.internship.paymentservice.dto.CreatePaymentRequest;
+import com.internship.paymentservice.dto.RefundPaymentRequest;
+import com.internship.paymentservice.dto.VerifyPaymentRequest;
 import com.internship.paymentservice.entity.Payment;
 import com.internship.paymentservice.service.PaymentService;
 
+import jakarta.validation.Valid;
+
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/payments")
+@RequestMapping("/api/payments")
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -27,104 +32,199 @@ public class PaymentController {
     // CREATE PAYMENT
     // =====================================================
 
-    @PostMapping("/create")
-    public Payment createPayment(
-            @RequestHeader("Idempotency-Key")
-            String idempotencyKey,
-            @RequestBody CreatePaymentRequest request)
-            throws Exception {
+    @PostMapping
+    public ResponseEntity<?> createPayment(
+            @Valid @RequestBody CreatePaymentRequest request) {
 
-        return paymentService.createPayment(
-                request,
-                idempotencyKey
-        );
+        try {
+
+            return ResponseEntity.ok(
+                    paymentService.createPayment(
+                            request
+                    )
+            );
+
+        } catch (IllegalArgumentException e) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(e.getMessage());
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .internalServerError()
+                    .body(e.getMessage());
+        }
     }
 
 
     // =====================================================
-    // UPDATE PAYMENT STATUS
+    // VERIFY PAYMENT
     // =====================================================
 
-    @PostMapping("/{orderId}/status")
-    public Payment updateStatus(
-            @PathVariable String orderId,
-            @RequestParam String status) {
+    @PostMapping("/verify")
+    public ResponseEntity<?> verifyPayment(
+            @Valid @RequestBody VerifyPaymentRequest request) {
 
-        return paymentService.updateStatus(
-                orderId,
-                status,
-                null
-        );
+        try {
+
+            return ResponseEntity.ok(
+                    paymentService.verifyPayment(
+                            request
+                    )
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(e.getMessage());
+        }
     }
 
 
     // =====================================================
-    // GET ALL PAYMENTS
+    // REFUND
+    // =====================================================
+
+    @PostMapping("/{id}/refund")
+    public ResponseEntity<?> refundPayment(
+            @PathVariable Long id,
+            @Valid @RequestBody RefundPaymentRequest request) {
+
+        try {
+
+            return ResponseEntity.ok(
+                    paymentService.refundPayment(
+                            id,
+                            request
+                    )
+            );
+
+        } catch (Exception e) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(e.getMessage());
+        }
+    }
+
+
+    // =====================================================
+    // GET ALL
     // =====================================================
 
     @GetMapping
-    public List<Payment> getAllPayments() {
+    public ResponseEntity<List<Payment>>
+    getAllPayments() {
 
-        return paymentService.getAllPayments();
+        return ResponseEntity.ok(
+                paymentService.getAllPayments()
+        );
     }
 
 
     // =====================================================
-    // GET PAYMENT BY ORDER ID
+    // GET BY DATABASE ID
+    // =====================================================
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Payment>
+    getPaymentById(
+            @PathVariable Long id) {
+
+        return paymentService
+                .getPaymentById(id)
+                .map(ResponseEntity::ok)
+                .orElse(
+                        ResponseEntity
+                                .notFound()
+                                .build()
+                );
+    }
+
+
+    // =====================================================
+    // GET BY INTERNAL ORDER ID
     // =====================================================
 
     @GetMapping("/order/{orderId}")
-    public Payment getPaymentByOrderId(
+    public ResponseEntity<Payment>
+    getPaymentByOrderId(
             @PathVariable String orderId) {
 
         return paymentService
-                .getPaymentByOrderId(
-                        orderId
+                .getPaymentByOrderId(orderId)
+                .map(ResponseEntity::ok)
+                .orElse(
+                        ResponseEntity
+                                .notFound()
+                                .build()
                 );
     }
 
 
     // =====================================================
-    // GET PAYMENTS BY USER
+    // GET BY USER
     // =====================================================
 
     @GetMapping("/user/{userId}")
-    public List<Payment> getPaymentsByUser(
+    public ResponseEntity<List<Payment>>
+    getPaymentsByUser(
             @PathVariable String userId) {
 
-        return paymentService
-                .getPaymentsByUser(
-                        userId
-                );
+        return ResponseEntity.ok(
+                paymentService
+                        .getPaymentsByUser(userId)
+        );
     }
 
 
     // =====================================================
-    // GET PAYMENTS BY STATUS
+    // GET BY STATUS
     // =====================================================
 
     @GetMapping("/status/{status}")
-    public List<Payment> getPaymentsByStatus(
+    public ResponseEntity<List<Payment>>
+    getPaymentsByStatus(
             @PathVariable String status) {
 
-        return paymentService
-                .getPaymentsByStatus(
-                        status
-                );
+        return ResponseEntity.ok(
+                paymentService
+                        .getPaymentsByStatus(status)
+        );
     }
 
 
     // =====================================================
-    // REFUND PAYMENT
+    // RECHECK PAYMENT STATUS
+    // PHASE 4
     // =====================================================
 
-    @PostMapping("/{orderId}/refund")
-    public Payment refundPayment(
-            @PathVariable String orderId)
-            throws Exception {
+    @GetMapping("/recheck/{orderId}")
+    public ResponseEntity<?> recheckPaymentStatus(
+            @PathVariable String orderId) {
 
-        return paymentService.refundPayment(
-                orderId
-        );
+        try {
+
+            return ResponseEntity.ok(
+                    paymentService.recheckPaymentStatus(
+                            orderId
+                    )
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(e.getMessage());
+        }
     }
 }
