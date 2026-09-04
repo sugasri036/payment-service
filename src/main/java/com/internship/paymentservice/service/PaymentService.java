@@ -27,28 +27,28 @@ import java.util.UUID;
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
-
     private final RazorpayClient razorpayClient;
-
     private final RestTemplate restTemplate;
+
+    // =====================================================
+    // RAZORPAY
+    // =====================================================
 
     @Value("${razorpay.key.secret}")
     private String razorpaySecret;
 
     // =====================================================
-    // ORDER SERVICE URL
+    // ORDER SERVICE
     // =====================================================
 
     @Value("${order.service.url}")
     private String orderServiceUrl;
-
 
     // =====================================================
     // PAYMENT EXPIRY
     // =====================================================
 
     private static final long PAYMENT_EXPIRY_MINUTES = 10;
-
 
     // =====================================================
     // CONSTRUCTOR
@@ -61,26 +61,20 @@ public class PaymentService {
             @Value("${razorpay.key.secret}") String keySecret)
             throws Exception {
 
-        this.paymentRepository =
-                paymentRepository;
+        this.paymentRepository = paymentRepository;
+        this.restTemplate = restTemplate;
 
-        this.restTemplate =
-                restTemplate;
-
-        this.razorpayClient =
-                new RazorpayClient(
-                        keyId.trim(),
-                        keySecret.trim()
-                );
+        this.razorpayClient = new RazorpayClient(
+                keyId.trim(),
+                keySecret.trim()
+        );
     }
-
 
     // =====================================================
     // CREATE PAYMENT
     // =====================================================
 
-    public Payment createPayment(
-            CreatePaymentRequest request) {
+    public Payment createPayment(CreatePaymentRequest request) {
 
         if (request.getAmount() == null ||
                 request.getAmount() <= 0) {
@@ -106,7 +100,6 @@ public class PaymentService {
             );
         }
 
-
         // =================================================
         // IDEMPOTENCY
         // =================================================
@@ -114,21 +107,18 @@ public class PaymentService {
         String idempotencyKey =
                 request.getIdempotencyKey();
 
-
         if (idempotencyKey != null &&
                 !idempotencyKey.isBlank()) {
 
             Optional<Payment> existingPayment =
-                    paymentRepository
-                            .findByIdempotencyKey(
-                                    idempotencyKey
-                            );
-
+                    paymentRepository.findByIdempotencyKey(
+                            idempotencyKey
+                    );
 
             if (existingPayment.isPresent()) {
 
                 System.out.println(
-                        "IDEMPOTENT REQUEST"
+                        "IDEMPOTENT REQUEST - RETURNING EXISTING PAYMENT"
                 );
 
                 return existingPayment.get();
@@ -140,49 +130,39 @@ public class PaymentService {
                     UUID.randomUUID().toString();
         }
 
-
         // =================================================
         // CREATE PAYMENT OBJECT
         // =================================================
 
-        Payment payment =
-                new Payment();
-
+        Payment payment = new Payment();
 
         payment.setPaymentId(
                 "PAY-" + UUID.randomUUID()
         );
 
-
         payment.setOrderId(
                 request.getOrderId()
         );
-
 
         payment.setUserId(
                 request.getUserId()
         );
 
-
         payment.setAmount(
                 request.getAmount()
         );
-
 
         payment.setIdempotencyKey(
                 idempotencyKey
         );
 
-
         payment.setStatus(
                 "CREATED"
         );
 
-
         payment.setCreatedAt(
                 LocalDateTime.now()
         );
-
 
         // =================================================
         // CREATE RAZORPAY ORDER
@@ -195,78 +175,63 @@ public class PaymentService {
                             request.getAmount() * 100
                     );
 
-
             JSONObject orderRequest =
                     new JSONObject();
-
 
             orderRequest.put(
                     "amount",
                     amountInPaise
             );
 
-
             orderRequest.put(
                     "currency",
                     "INR"
             );
-
 
             orderRequest.put(
                     "receipt",
                     payment.getPaymentId()
             );
 
-
             System.out.println();
             System.out.println(
                     "===================================="
             );
-
             System.out.println(
                     "CREATING RAZORPAY ORDER"
             );
-
             System.out.println(
                     "Internal Order ID: "
                             + payment.getOrderId()
             );
-
             System.out.println(
                     "Amount: ₹"
                             + request.getAmount()
             );
-
             System.out.println(
                     "Amount in paise: "
                             + amountInPaise
             );
-
             System.out.println(
                     "===================================="
             );
-
 
             Order razorpayOrder =
                     razorpayClient.orders.create(
                             orderRequest
                     );
 
-
             String razorpayOrderId =
                     razorpayOrder.get("id");
-
 
             payment.setRazorpayOrderId(
                     razorpayOrderId
             );
 
-
             System.out.println(
                     "RAZORPAY ORDER CREATED: "
                             + razorpayOrderId
             );
-
 
         } catch (Exception e) {
 
@@ -279,7 +244,6 @@ public class PaymentService {
             );
         }
 
-
         // =================================================
         // SAVE PAYMENT
         // =================================================
@@ -288,7 +252,6 @@ public class PaymentService {
                 paymentRepository.save(
                         payment
                 );
-
 
         System.out.println();
         System.out.println(
@@ -315,10 +278,8 @@ public class PaymentService {
                         + savedPayment.getStatus()
         );
 
-
         return savedPayment;
     }
-
 
     // =====================================================
     // VERIFY PAYMENT
@@ -335,7 +296,6 @@ public class PaymentService {
             );
         }
 
-
         if (request.getRazorpayPaymentId() == null ||
                 request.getRazorpayPaymentId().isBlank()) {
 
@@ -344,7 +304,6 @@ public class PaymentService {
             );
         }
 
-
         if (request.getRazorpaySignature() == null ||
                 request.getRazorpaySignature().isBlank()) {
 
@@ -352,7 +311,6 @@ public class PaymentService {
                     "Razorpay Signature is required"
             );
         }
-
 
         // =================================================
         // FIND PAYMENT
@@ -370,9 +328,8 @@ public class PaymentService {
                                 )
                         );
 
-
         // =================================================
-        // VERIFY SIGNATURE
+        // VERIFY RAZORPAY SIGNATURE
         // =================================================
 
         try {
@@ -380,24 +337,20 @@ public class PaymentService {
             JSONObject attributes =
                     new JSONObject();
 
-
             attributes.put(
                     "razorpay_order_id",
                     request.getRazorpayOrderId()
             );
-
 
             attributes.put(
                     "razorpay_payment_id",
                     request.getRazorpayPaymentId()
             );
 
-
             attributes.put(
                     "razorpay_signature",
                     request.getRazorpaySignature()
             );
-
 
             boolean signatureValid =
                     Utils.verifyPaymentSignature(
@@ -405,14 +358,12 @@ public class PaymentService {
                             razorpaySecret
                     );
 
-
             if (!signatureValid) {
 
                 throw new RuntimeException(
                         "Invalid Razorpay payment signature"
                 );
             }
-
 
         } catch (Exception e) {
 
@@ -423,7 +374,6 @@ public class PaymentService {
             );
         }
 
-
         // =================================================
         // UPDATE PAYMENT
         // =================================================
@@ -432,27 +382,22 @@ public class PaymentService {
                 request.getRazorpayPaymentId()
         );
 
-
         payment.setPaymentId(
                 request.getRazorpayPaymentId()
         );
-
 
         payment.setStatus(
                 "VERIFIED"
         );
 
-
         payment.setVerifiedAt(
                 LocalDateTime.now()
         );
-
 
         Payment savedPayment =
                 paymentRepository.save(
                         payment
                 );
-
 
         // =================================================
         // UPDATE ORDER
@@ -466,16 +411,21 @@ public class PaymentService {
 
         } catch (Exception e) {
 
+            /*
+             * Payment is already verified by Razorpay.
+             * Do NOT mark the payment as failed just because
+             * the order-service callback temporarily failed.
+             *
+             * The recheck endpoint can retry the order update.
+             */
+
+            System.out.println();
             System.out.println(
                     "===================================="
             );
 
             System.out.println(
-                    "WARNING"
-            );
-
-            System.out.println(
-                    "PAYMENT VERIFIED"
+                    "PAYMENT VERIFIED SUCCESSFULLY"
             );
 
             System.out.println(
@@ -493,33 +443,41 @@ public class PaymentService {
             );
 
             System.out.println(
+                    "Payment remains VERIFIED"
+            );
+
+            System.out.println(
                     "===================================="
             );
-
-
-            throw new RuntimeException(
-                    "Payment verified, but order could not be updated to PAID: "
-                            + e.getMessage(),
-                    e
-            );
         }
-
 
         return savedPayment;
     }
 
-
     // =====================================================
-    // UPDATE ORDER AFTER PAYMENT
+    // UPDATE ORDER AFTER SUCCESSFUL PAYMENT
     // =====================================================
 
     private void updateOrderAfterPayment(
             Payment payment) {
 
+        String baseUrl =
+                orderServiceUrl == null
+                        ? ""
+                        : orderServiceUrl.trim();
+
+        if (baseUrl.endsWith("/")) {
+            baseUrl =
+                    baseUrl.substring(
+                            0,
+                            baseUrl.length() - 1
+                    );
+        }
+
         String orderUrl =
                 UriComponentsBuilder
                         .fromUriString(
-                                orderServiceUrl
+                                baseUrl
                                         + "/api/orders/"
                                         + payment.getOrderId()
                                         + "/payment"
@@ -529,7 +487,6 @@ public class PaymentService {
                                 payment.getPaymentId()
                         )
                         .toUriString();
-
 
         System.out.println();
         System.out.println(
@@ -551,7 +508,12 @@ public class PaymentService {
         );
 
         System.out.println(
-                "URL: "
+                "Order Service URL: "
+                        + orderServiceUrl
+        );
+
+        System.out.println(
+                "Final URL: "
                         + orderUrl
         );
 
@@ -559,19 +521,16 @@ public class PaymentService {
                 "===================================="
         );
 
-
         restTemplate.put(
                 orderUrl,
                 null
         );
-
 
         System.out.println(
                 "ORDER UPDATED TO PAID: "
                         + payment.getOrderId()
         );
     }
-
 
     // =====================================================
     // UPDATE ORDER AS PAYMENT FAILED
@@ -580,16 +539,28 @@ public class PaymentService {
     private void updateOrderAsPaymentFailed(
             Payment payment) {
 
+        String baseUrl =
+                orderServiceUrl == null
+                        ? ""
+                        : orderServiceUrl.trim();
+
+        if (baseUrl.endsWith("/")) {
+            baseUrl =
+                    baseUrl.substring(
+                            0,
+                            baseUrl.length() - 1
+                    );
+        }
+
         String orderUrl =
                 UriComponentsBuilder
                         .fromUriString(
-                                orderServiceUrl
+                                baseUrl
                                         + "/api/orders/"
                                         + payment.getOrderId()
                                         + "/payment-failed"
                         )
                         .toUriString();
-
 
         System.out.println();
         System.out.println(
@@ -606,7 +577,12 @@ public class PaymentService {
         );
 
         System.out.println(
-                "URL: "
+                "Order Service URL: "
+                        + orderServiceUrl
+        );
+
+        System.out.println(
+                "Final URL: "
                         + orderUrl
         );
 
@@ -614,12 +590,10 @@ public class PaymentService {
                 "===================================="
         );
 
-
         restTemplate.put(
                 orderUrl,
                 null
         );
-
 
         System.out.println(
                 "ORDER UPDATED TO PAYMENT_FAILED: "
@@ -627,9 +601,7 @@ public class PaymentService {
         );
     }
 
-
     // =====================================================
-    // PHASE 4
     // RECHECK PAYMENT STATUS
     // =====================================================
 
@@ -646,7 +618,6 @@ public class PaymentService {
                                 )
                         );
 
-
         if (payment.getRazorpayOrderId() == null ||
                 payment.getRazorpayOrderId().isBlank()) {
 
@@ -655,7 +626,6 @@ public class PaymentService {
             );
         }
 
-
         try {
 
             List<com.razorpay.Payment> razorpayPayments =
@@ -663,6 +633,9 @@ public class PaymentService {
                             payment.getRazorpayOrderId()
                     );
 
+            // =================================================
+            // NO PAYMENT FOUND
+            // =================================================
 
             if (razorpayPayments == null ||
                     razorpayPayments.isEmpty()) {
@@ -681,7 +654,6 @@ public class PaymentService {
                                 + orderId
                 );
 
-
                 if (payment.getCreatedAt() != null) {
 
                     long ageMinutes =
@@ -690,13 +662,11 @@ public class PaymentService {
                                     LocalDateTime.now()
                             ).toMinutes();
 
-
                     System.out.println(
                             "Payment age: "
                                     + ageMinutes
                                     + " minutes"
                     );
-
 
                     if (ageMinutes >=
                             PAYMENT_EXPIRY_MINUTES) {
@@ -705,17 +675,14 @@ public class PaymentService {
                                 "EXPIRED"
                         );
 
-
                         Payment savedPayment =
                                 paymentRepository.save(
                                         payment
                                 );
 
-
                         System.out.println(
                                 "PAYMENT EXPIRED"
                         );
-
 
                         try {
 
@@ -731,11 +698,9 @@ public class PaymentService {
                             );
                         }
 
-
                         return savedPayment;
                     }
                 }
-
 
                 System.out.println(
                         "PAYMENT STILL WAITING"
@@ -745,34 +710,25 @@ public class PaymentService {
                         "===================================="
                 );
 
-
                 return payment;
             }
 
-
             // =================================================
-            // GET PAYMENT
+            // GET FIRST RAZORPAY PAYMENT
             // =================================================
 
             com.razorpay.Payment razorpayPayment =
                     razorpayPayments.get(0);
-
 
             String razorpayStatus =
                     razorpayPayment.get(
                             "status"
                     );
 
-
             String razorpayPaymentId =
                     razorpayPayment.get(
                             "id"
                     );
-
-
-            // =================================================
-            // LOG
-            // =================================================
 
             System.out.println();
             System.out.println(
@@ -807,7 +763,6 @@ public class PaymentService {
                     "===================================="
             );
 
-
             // =================================================
             // PAYMENT CAPTURED
             // =================================================
@@ -820,16 +775,13 @@ public class PaymentService {
                         razorpayPaymentId
                 );
 
-
                 payment.setPaymentId(
                         razorpayPaymentId
                 );
 
-
                 payment.setStatus(
                         "VERIFIED"
                 );
-
 
                 if (payment.getVerifiedAt() == null) {
 
@@ -838,12 +790,10 @@ public class PaymentService {
                     );
                 }
 
-
                 Payment savedPayment =
                         paymentRepository.save(
                                 payment
                         );
-
 
                 try {
 
@@ -859,7 +809,6 @@ public class PaymentService {
                     );
                 }
 
-
                 System.out.println();
                 System.out.println(
                         "PAYMENT RECHECK SUCCESSFUL"
@@ -874,10 +823,8 @@ public class PaymentService {
                         "Payment Status: VERIFIED"
                 );
 
-
                 return savedPayment;
             }
-
 
             // =================================================
             // PAYMENT FAILED
@@ -891,17 +838,14 @@ public class PaymentService {
                         razorpayPaymentId
                 );
 
-
                 payment.setStatus(
                         "FAILED"
                 );
-
 
                 Payment savedPayment =
                         paymentRepository.save(
                                 payment
                         );
-
 
                 try {
 
@@ -916,7 +860,6 @@ public class PaymentService {
                                     + e.getMessage()
                     );
                 }
-
 
                 System.out.println();
                 System.out.println(
@@ -935,23 +878,18 @@ public class PaymentService {
                         "===================================="
                 );
 
-
                 return savedPayment;
             }
 
-
             // =================================================
-            // PAYMENT STILL PROCESSING
+            // STILL PROCESSING
             // =================================================
 
-            System.out.println();
             System.out.println(
                     "PAYMENT STILL PROCESSING"
             );
 
-
             return payment;
-
 
         } catch (Exception e) {
 
@@ -962,7 +900,6 @@ public class PaymentService {
             );
         }
     }
-
 
     // =====================================================
     // REFUND PAYMENT
@@ -981,7 +918,6 @@ public class PaymentService {
                                 )
                         );
 
-
         if (!"VERIFIED".equalsIgnoreCase(
                 payment.getStatus()
         ) &&
@@ -994,7 +930,6 @@ public class PaymentService {
             );
         }
 
-
         if (request.getAmount() == null ||
                 request.getAmount() <= 0) {
 
@@ -1002,7 +937,6 @@ public class PaymentService {
                     "Refund amount must be greater than 0"
             );
         }
-
 
         if (request.getAmount() >
                 payment.getAmount()) {
@@ -1012,31 +946,25 @@ public class PaymentService {
             );
         }
 
-
         payment.setRefundId(
                 "REF-" + UUID.randomUUID()
         );
-
 
         payment.setRefundAmount(
                 request.getAmount()
         );
 
-
         payment.setStatus(
                 "REFUNDED"
         );
-
 
         return paymentRepository.save(
                 payment
         );
     }
 
-
     // =====================================================
-    // UPDATE PAYMENT STATUS
-    // WEBHOOK
+    // UPDATE PAYMENT STATUS - WEBHOOK
     // =====================================================
 
     public Payment updateStatus(
@@ -1056,11 +984,9 @@ public class PaymentService {
                                 )
                         );
 
-
         payment.setStatus(
                 status
         );
-
 
         if (razorpayPaymentId != null &&
                 !razorpayPaymentId.isBlank()) {
@@ -1074,7 +1000,6 @@ public class PaymentService {
             );
         }
 
-
         if (("VERIFIED".equalsIgnoreCase(status) ||
                 "PAID".equalsIgnoreCase(status)) &&
                 payment.getVerifiedAt() == null) {
@@ -1084,12 +1009,10 @@ public class PaymentService {
             );
         }
 
-
         Payment savedPayment =
                 paymentRepository.save(
                         payment
                 );
-
 
         // =================================================
         // SUCCESSFUL PAYMENT
@@ -1107,12 +1030,11 @@ public class PaymentService {
             } catch (Exception e) {
 
                 System.out.println(
-                        "Order update failed: "
+                        "ORDER UPDATE FAILED: "
                                 + e.getMessage()
                 );
             }
         }
-
 
         // =================================================
         // FAILED PAYMENT
@@ -1130,16 +1052,14 @@ public class PaymentService {
             } catch (Exception e) {
 
                 System.out.println(
-                        "Order update failed: "
+                        "ORDER UPDATE FAILED: "
                                 + e.getMessage()
                 );
             }
         }
 
-
         return savedPayment;
     }
-
 
     // =====================================================
     // GET ALL PAYMENTS
@@ -1149,7 +1069,6 @@ public class PaymentService {
 
         return paymentRepository.findAll();
     }
-
 
     // =====================================================
     // GET PAYMENT BY DATABASE ID
@@ -1163,7 +1082,6 @@ public class PaymentService {
         );
     }
 
-
     // =====================================================
     // GET PAYMENT BY ORDER ID
     // =====================================================
@@ -1176,7 +1094,6 @@ public class PaymentService {
         );
     }
 
-
     // =====================================================
     // GET PAYMENTS BY USER
     // =====================================================
@@ -1188,7 +1105,6 @@ public class PaymentService {
                 userId
         );
     }
-
 
     // =====================================================
     // GET PAYMENTS BY STATUS
