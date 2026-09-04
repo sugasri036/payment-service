@@ -35,6 +35,13 @@ public class PaymentService {
     @Value("${razorpay.key.secret}")
     private String razorpaySecret;
 
+    // =====================================================
+    // ORDER SERVICE URL
+    // =====================================================
+
+    @Value("${order.service.url}")
+    private String orderServiceUrl;
+
 
     // =====================================================
     // PAYMENT EXPIRY
@@ -75,10 +82,6 @@ public class PaymentService {
     public Payment createPayment(
             CreatePaymentRequest request) {
 
-        // -------------------------------------------------
-        // VALIDATE AMOUNT
-        // -------------------------------------------------
-
         if (request.getAmount() == null ||
                 request.getAmount() <= 0) {
 
@@ -87,11 +90,6 @@ public class PaymentService {
             );
         }
 
-
-        // -------------------------------------------------
-        // VALIDATE ORDER ID
-        // -------------------------------------------------
-
         if (request.getOrderId() == null ||
                 request.getOrderId().isBlank()) {
 
@@ -99,11 +97,6 @@ public class PaymentService {
                     "Order ID is required"
             );
         }
-
-
-        // -------------------------------------------------
-        // VALIDATE USER
-        // -------------------------------------------------
 
         if (request.getUserId() == null ||
                 request.getUserId().isBlank()) {
@@ -526,7 +519,8 @@ public class PaymentService {
         String orderUrl =
                 UriComponentsBuilder
                         .fromUriString(
-                                "http://localhost:8083/api/orders/"
+                                orderServiceUrl
+                                        + "/api/orders/"
                                         + payment.getOrderId()
                                         + "/payment"
                         )
@@ -589,7 +583,8 @@ public class PaymentService {
         String orderUrl =
                 UriComponentsBuilder
                         .fromUriString(
-                                "http://localhost:8083/api/orders/"
+                                orderServiceUrl
+                                        + "/api/orders/"
                                         + payment.getOrderId()
                                         + "/payment-failed"
                         )
@@ -641,10 +636,6 @@ public class PaymentService {
     public Payment recheckPaymentStatus(
             String orderId) {
 
-        // -------------------------------------------------
-        // FIND PAYMENT
-        // -------------------------------------------------
-
         Payment payment =
                 paymentRepository
                         .findByOrderId(orderId)
@@ -655,10 +646,6 @@ public class PaymentService {
                                 )
                         );
 
-
-        // -------------------------------------------------
-        // CHECK RAZORPAY ORDER ID
-        // -------------------------------------------------
 
         if (payment.getRazorpayOrderId() == null ||
                 payment.getRazorpayOrderId().isBlank()) {
@@ -671,19 +658,11 @@ public class PaymentService {
 
         try {
 
-            // =================================================
-            // ASK RAZORPAY FOR PAYMENTS
-            // =================================================
-
             List<com.razorpay.Payment> razorpayPayments =
                     razorpayClient.orders.fetchPayments(
                             payment.getRazorpayOrderId()
                     );
 
-
-            // =================================================
-            // NO PAYMENT FOUND
-            // =================================================
 
             if (razorpayPayments == null ||
                     razorpayPayments.isEmpty()) {
@@ -702,10 +681,6 @@ public class PaymentService {
                                 + orderId
                 );
 
-
-                // -------------------------------------------------
-                // CHECK WHETHER PAYMENT EXPIRED
-                // -------------------------------------------------
 
                 if (payment.getCreatedAt() != null) {
 
@@ -726,10 +701,6 @@ public class PaymentService {
                     if (ageMinutes >=
                             PAYMENT_EXPIRY_MINUTES) {
 
-                        // -----------------------------------------
-                        // MARK PAYMENT EXPIRED
-                        // -----------------------------------------
-
                         payment.setStatus(
                                 "EXPIRED"
                         );
@@ -745,10 +716,6 @@ public class PaymentService {
                                 "PAYMENT EXPIRED"
                         );
 
-
-                        // -----------------------------------------
-                        // MARK ORDER FAILED
-                        // -----------------------------------------
 
                         try {
 
@@ -878,10 +845,6 @@ public class PaymentService {
                         );
 
 
-                // -------------------------------------------------
-                // UPDATE ORDER
-                // -------------------------------------------------
-
                 try {
 
                     updateOrderAfterPayment(
@@ -939,10 +902,6 @@ public class PaymentService {
                                 payment
                         );
 
-
-                // -------------------------------------------------
-                // IMPORTANT FIX
-                // -------------------------------------------------
 
                 try {
 
