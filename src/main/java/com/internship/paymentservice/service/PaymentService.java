@@ -905,64 +905,177 @@ public class PaymentService {
     // REFUND PAYMENT
     // =====================================================
 
-    public Payment refundPayment(
-            Long id,
-            RefundPaymentRequest request) {
+    // =====================================================
+// REFUND PAYMENT
+// =====================================================
 
-        Payment payment =
-                paymentRepository
-                        .findById(id)
-                        .orElseThrow(
-                                () -> new RuntimeException(
-                                        "Payment not found"
-                                )
-                        );
+public Payment refundPayment(
+        Long id,
+        RefundPaymentRequest request) {
 
-        if (!"VERIFIED".equalsIgnoreCase(
-                payment.getStatus()
-        ) &&
-                !"PAID".equalsIgnoreCase(
-                        payment.getStatus()
-                )) {
+    Payment payment =
+            paymentRepository
+                    .findById(id)
+                    .orElseThrow(
+                            () -> new RuntimeException(
+                                    "Payment not found"
+                            )
+                    );
+
+
+    // =================================================
+    // VALIDATE PAYMENT STATUS
+    // =================================================
+
+    if (!"VERIFIED".equalsIgnoreCase(
+            payment.getStatus()
+    )
+            &&
+            !"PAID".equalsIgnoreCase(
+                    payment.getStatus()
+            )
+            &&
+            !"CAPTURED".equalsIgnoreCase(
+                    payment.getStatus()
+            )) {
+
+        throw new RuntimeException(
+                "Only successful payments can be refunded"
+        );
+    }
+
+
+    // =================================================
+    // VALIDATE RAZORPAY PAYMENT ID
+    // =================================================
+
+    if (payment.getRazorpayPaymentId() == null ||
+            payment.getRazorpayPaymentId().isBlank()) {
+
+        throw new RuntimeException(
+                "Razorpay payment ID is not available"
+        );
+    }
+
+
+    // =================================================
+    // VALIDATE REFUND AMOUNT
+    // =================================================
+
+    if (request.getAmount() == null ||
+            request.getAmount() <= 0) {
+
+        throw new IllegalArgumentException(
+                "Refund amount must be greater than 0"
+        );
+    }
+
+
+    if (request.getAmount() >
+            payment.getAmount()) {
+
+        throw new IllegalArgumentException(
+                "Refund amount cannot exceed payment amount"
+        );
+    }
+
+
+    // =================================================
+    // CONVERT TO PAISE
+    // =================================================
+
+    int amountInPaise =
+            (int) Math.round(
+                    request.getAmount() * 100
+            );
+
+
+    // =================================================
+    // CREATE RAZORPAY REFUND
+    // =================================================
+
+    try {
+
+        JSONObject refundRequest =
+                new JSONObject();
+
+
+        refundRequest.put(
+                "amount",
+                amountInPaise
+        );
+
+
+        refundRequest.put(
+                "receipt",
+                "REF-" + payment.getPaymentId()
+        );
+
+
+        com.razorpay.Refund refund =
+                razorpayClient.payments.refund(
+                        payment.getRazorpayPaymentId(),
+                        refundRequest
+                );
+
+
+        // =================================================
+        // GET RAZORPAY REFUND ID
+        // =================================================
+
+        String refundId =
+                refund.get("id");
+
+
+        if (refundId == null ||
+                refundId.isBlank()) {
 
             throw new RuntimeException(
-                    "Only successful payments can be refunded"
+                    "Razorpay did not return a refund ID"
             );
         }
 
-        if (request.getAmount() == null ||
-                request.getAmount() <= 0) {
 
-            throw new IllegalArgumentException(
-                    "Refund amount must be greater than 0"
-            );
-        }
-
-        if (request.getAmount() >
-                payment.getAmount()) {
-
-            throw new IllegalArgumentException(
-                    "Refund amount cannot exceed payment amount"
-            );
-        }
+        // =================================================
+        // SAVE REFUND INFORMATION
+        // =================================================
 
         payment.setRefundId(
-                "REF-" + UUID.randomUUID()
+                refundId
         );
+
 
         payment.setRefundAmount(
                 request.getAmount()
         );
 
+
+        /*
+         * Do NOT pretend the refund is completed
+         * just because the API request succeeded.
+         *
+         * Razorpay refund processing has its own state.
+         */
+
         payment.setStatus(
-                "REFUNDED"
+                "REFUND_PENDING"
         );
+
 
         return paymentRepository.save(
                 payment
         );
-    }
 
+
+    } catch (Exception e) {
+
+        throw new RuntimeException(
+                "Razorpay refund failed: "
+                        + e.getMessage(),
+                e
+        );
+    }
+}
     // =====================================================
     // UPDATE PAYMENT STATUS - WEBHOOK
     // =====================================================

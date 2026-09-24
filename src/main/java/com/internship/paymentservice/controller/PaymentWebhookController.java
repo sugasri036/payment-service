@@ -1,8 +1,11 @@
 package com.internship.paymentservice.controller;
 
 import com.internship.paymentservice.service.PaymentService;
+
 import com.razorpay.Utils;
+
 import org.json.JSONObject;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,18 +16,16 @@ public class PaymentWebhookController {
 
     private final PaymentService paymentService;
 
+
     @Value("${razorpay.webhook.secret}")
     private String webhookSecret;
 
 
-    // =====================================================
-    // CONSTRUCTOR
-    // =====================================================
-
     public PaymentWebhookController(
-            PaymentService paymentService
-    ) {
-        this.paymentService = paymentService;
+            PaymentService paymentService) {
+
+        this.paymentService =
+                paymentService;
     }
 
 
@@ -48,19 +49,22 @@ public class PaymentWebhookController {
         try {
 
             // =================================================
-            // 1. CHECK SIGNATURE
+            // CHECK SIGNATURE
             // =================================================
 
-            if (signature == null || signature.isBlank()) {
+            if (signature == null ||
+                    signature.isBlank()) {
 
                 return ResponseEntity
                         .badRequest()
-                        .body("Missing Razorpay signature");
+                        .body(
+                                "Missing Razorpay signature"
+                        );
             }
 
 
             // =================================================
-            // 2. VERIFY WEBHOOK SIGNATURE
+            // VERIFY WEBHOOK
             // =================================================
 
             Utils.verifyWebhookSignature(
@@ -71,34 +75,35 @@ public class PaymentWebhookController {
 
 
             // =================================================
-            // 3. CONVERT PAYLOAD TO JSON
+            // PARSE JSON
             // =================================================
 
             JSONObject webhook =
                     new JSONObject(payload);
 
 
-            // =================================================
-            // 4. GET EVENT TYPE
-            // =================================================
-
             String event =
-                    webhook.optString("event");
+                    webhook.optString(
+                            "event"
+                    );
 
 
             System.out.println(
-                    "Razorpay Webhook Event: " + event
+                    "Razorpay Webhook Event: "
+                            + event
             );
 
 
             // =================================================
-            // 5. PAYMENT EVENTS
+            // PAYMENT EVENTS
             // =================================================
 
             if (
                     "payment.authorized".equals(event)
-                    || "payment.captured".equals(event)
-                    || "payment.failed".equals(event)
+                            ||
+                    "payment.captured".equals(event)
+                            ||
+                    "payment.failed".equals(event)
             ) {
 
                 JSONObject paymentEntity =
@@ -108,112 +113,109 @@ public class PaymentWebhookController {
                                 .getJSONObject("entity");
 
 
-                // ---------------------------------------------
-                // Razorpay Payment ID
-                // ---------------------------------------------
-
-                String paymentId =
+                String razorpayPaymentId =
                         paymentEntity.optString(
                                 "id",
                                 null
                         );
 
 
-                // ---------------------------------------------
-                // Razorpay Order ID
-                // ---------------------------------------------
-
-                String orderId =
+                String razorpayOrderId =
                         paymentEntity.optString(
                                 "order_id",
                                 null
                         );
 
 
-                // ---------------------------------------------
-                // Razorpay status
-                // ---------------------------------------------
+                if (razorpayOrderId == null ||
+                        razorpayOrderId.isBlank()) {
 
-                String razorpayStatus =
-                        paymentEntity.optString(
-                                "status",
-                                null
-                        );
+                    throw new RuntimeException(
+                            "Razorpay order ID missing from webhook"
+                    );
+                }
 
 
-                System.out.println(
-                        "Razorpay Payment ID: "
-                                + paymentId
-                );
+                if (razorpayPaymentId == null ||
+                        razorpayPaymentId.isBlank()) {
 
-                System.out.println(
-                        "Razorpay Order ID: "
-                                + orderId
-                );
-
-                System.out.println(
-                        "Razorpay Status: "
-                                + razorpayStatus
-                );
+                    throw new RuntimeException(
+                            "Razorpay payment ID missing from webhook"
+                    );
+                }
 
 
-                // ---------------------------------------------
-                // PAYMENT AUTHORIZED
-                // ---------------------------------------------
+                String status;
+
+
+                // -------------------------------------------------
+                // AUTHORIZED
+                // -------------------------------------------------
 
                 if (
                         "payment.authorized"
                                 .equals(event)
                 ) {
 
-                    paymentService.updateStatus(
-                            paymentId,
-                            orderId,
-                            "AUTHORIZED"
-                    );
+                    status =
+                            "AUTHORIZED";
                 }
 
 
-                // ---------------------------------------------
-                // PAYMENT CAPTURED
-                // ---------------------------------------------
+                // -------------------------------------------------
+                // CAPTURED
+                // -------------------------------------------------
 
                 else if (
                         "payment.captured"
                                 .equals(event)
                 ) {
 
-                    paymentService.updateStatus(
-                            paymentId,
-                            orderId,
-                            "CAPTURED"
-                    );
+                    status =
+                            "CAPTURED";
                 }
 
 
-                // ---------------------------------------------
-                // PAYMENT FAILED
-                // ---------------------------------------------
+                // -------------------------------------------------
+                // FAILED
+                // -------------------------------------------------
 
-                else if (
-                        "payment.failed"
-                                .equals(event)
-                ) {
+                else {
 
-                    paymentService.updateStatus(
-                            paymentId,
-                            orderId,
-                            "FAILED"
-                    );
+                    status =
+                            "FAILED";
                 }
+
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * PaymentService.updateStatus() expects:
+                 *
+                 * 1. razorpayOrderId
+                 * 2. status
+                 * 3. razorpayPaymentId
+                 */
+
+                paymentService.updateStatus(
+
+                        razorpayOrderId,
+
+                        status,
+
+                        razorpayPaymentId
+
+                );
             }
 
 
             // =================================================
-            // 6. ORDER PAID EVENT
+            // ORDER PAID
             // =================================================
 
-            else if ("order.paid".equals(event)) {
+            else if (
+                    "order.paid".equals(event)
+            ) {
 
                 JSONObject orderEntity =
                         webhook
@@ -222,10 +224,6 @@ public class PaymentWebhookController {
                                 .getJSONObject("entity");
 
 
-                // ---------------------------------------------
-                // Get Order ID
-                // ---------------------------------------------
-
                 String paidOrderId =
                         orderEntity.optString(
                                 "id",
@@ -233,26 +231,61 @@ public class PaymentWebhookController {
                         );
 
 
-                System.out.println(
-                        "Paid Order ID: "
-                                + paidOrderId
-                );
+                if (paidOrderId == null ||
+                        paidOrderId.isBlank()) {
+
+                    throw new RuntimeException(
+                            "Razorpay order ID missing"
+                    );
+                }
 
 
-                // ---------------------------------------------
-                // Update database
-                // ---------------------------------------------
+                /*
+                 * For order.paid we only have the
+                 * Razorpay order ID here.
+                 *
+                 * PaymentService will find the
+                 * corresponding local payment.
+                 */
 
                 paymentService.updateStatus(
-                        null,
+
                         paidOrderId,
-                        "PAID"
+
+                        "PAID",
+
+                        null
+
                 );
             }
 
 
             // =================================================
-            // 7. OTHER EVENTS
+            // REFUND EVENTS
+            // =================================================
+
+            else if (
+                    "refund.created".equals(event)
+                            ||
+                    "refund.processed".equals(event)
+                            ||
+                    "refund.failed".equals(event)
+            ) {
+
+                System.out.println(
+                        "Refund webhook received: "
+                                + event
+                );
+
+                /*
+                 * Refund processing will be handled in
+                 * the next payment-hardening phase.
+                 */
+            }
+
+
+            // =================================================
+            // OTHER EVENTS
             // =================================================
 
             else {
@@ -265,7 +298,7 @@ public class PaymentWebhookController {
 
 
             // =================================================
-            // 8. SUCCESS RESPONSE
+            // SUCCESS
             // =================================================
 
             return ResponseEntity
@@ -276,10 +309,6 @@ public class PaymentWebhookController {
 
 
         } catch (Exception e) {
-
-            // =================================================
-            // ERROR HANDLING
-            // =================================================
 
             e.printStackTrace();
 

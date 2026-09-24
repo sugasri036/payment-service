@@ -5,21 +5,58 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payments")
+@Table(
+        name = "payments",
+
+        uniqueConstraints = {
+
+                @UniqueConstraint(
+                        name = "uk_payment_id",
+                        columnNames = "payment_id"
+                ),
+
+                @UniqueConstraint(
+                        name = "uk_payment_order_id",
+                        columnNames = "order_id"
+                ),
+
+                @UniqueConstraint(
+                        name = "uk_payment_idempotency",
+                        columnNames = "idempotency_key"
+                ),
+
+                @UniqueConstraint(
+                        name = "uk_payment_razorpay_order",
+                        columnNames = "razorpay_order_id"
+                ),
+
+                @UniqueConstraint(
+                        name = "uk_payment_razorpay_payment",
+                        columnNames = "razorpay_payment_id"
+                )
+        },
+
+        indexes = {
+
+                @Index(
+                        name = "idx_payment_user",
+                        columnList = "user_id"
+                ),
+
+                @Index(
+                        name = "idx_payment_status",
+                        columnList = "status"
+                )
+        }
+)
 public class Payment {
 
-    // =====================================================
-    // DATABASE ID
-    // =====================================================
-
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(
+            strategy = GenerationType.IDENTITY
+    )
     private Long id;
 
-
-    // =====================================================
-    // PAYMENT INFORMATION
-    // =====================================================
 
     private String paymentId;
 
@@ -30,46 +67,22 @@ public class Payment {
     private String razorpayPaymentId;
 
 
-    // =====================================================
-    // USER
-    // =====================================================
-
     private String userId;
 
-
-    // =====================================================
-    // AMOUNT
-    // =====================================================
 
     private Double amount;
 
 
-    // =====================================================
-    // STATUS
-    // =====================================================
-
     private String status;
 
 
-    // =====================================================
-    // IDEMPOTENCY
-    // =====================================================
-
     private String idempotencyKey;
 
-
-    // =====================================================
-    // REFUND
-    // =====================================================
 
     private String refundId;
 
     private Double refundAmount;
 
-
-    // =====================================================
-    // TIMESTAMPS
-    // =====================================================
 
     private LocalDateTime createdAt;
 
@@ -77,7 +90,7 @@ public class Payment {
 
 
     // =====================================================
-    // GET DATABASE ID
+    // DATABASE ID
     // =====================================================
 
     public Long getId() {
@@ -90,13 +103,15 @@ public class Payment {
     // =====================================================
 
     public String getPaymentId() {
+
         return paymentId;
     }
 
     public void setPaymentId(
             String paymentId) {
 
-        this.paymentId = paymentId;
+        this.paymentId =
+                paymentId;
     }
 
 
@@ -105,13 +120,15 @@ public class Payment {
     // =====================================================
 
     public String getOrderId() {
+
         return orderId;
     }
 
     public void setOrderId(
             String orderId) {
 
-        this.orderId = orderId;
+        this.orderId =
+                orderId;
     }
 
 
@@ -120,6 +137,7 @@ public class Payment {
     // =====================================================
 
     public String getRazorpayOrderId() {
+
         return razorpayOrderId;
     }
 
@@ -136,6 +154,7 @@ public class Payment {
     // =====================================================
 
     public String getRazorpayPaymentId() {
+
         return razorpayPaymentId;
     }
 
@@ -152,13 +171,15 @@ public class Payment {
     // =====================================================
 
     public String getUserId() {
+
         return userId;
     }
 
     public void setUserId(
             String userId) {
 
-        this.userId = userId;
+        this.userId =
+                userId;
     }
 
 
@@ -167,13 +188,15 @@ public class Payment {
     // =====================================================
 
     public Double getAmount() {
+
         return amount;
     }
 
     public void setAmount(
             Double amount) {
 
-        this.amount = amount;
+        this.amount =
+                amount;
     }
 
 
@@ -182,13 +205,15 @@ public class Payment {
     // =====================================================
 
     public String getStatus() {
+
         return status;
     }
 
     public void setStatus(
             String status) {
 
-        this.status = status;
+        this.status =
+                status;
     }
 
 
@@ -197,6 +222,7 @@ public class Payment {
     // =====================================================
 
     public String getIdempotencyKey() {
+
         return idempotencyKey;
     }
 
@@ -213,13 +239,15 @@ public class Payment {
     // =====================================================
 
     public String getRefundId() {
+
         return refundId;
     }
 
     public void setRefundId(
             String refundId) {
 
-        this.refundId = refundId;
+        this.refundId =
+                refundId;
     }
 
 
@@ -228,6 +256,7 @@ public class Payment {
     // =====================================================
 
     public Double getRefundAmount() {
+
         return refundAmount;
     }
 
@@ -244,13 +273,15 @@ public class Payment {
     // =====================================================
 
     public LocalDateTime getCreatedAt() {
+
         return createdAt;
     }
 
     public void setCreatedAt(
             LocalDateTime createdAt) {
 
-        this.createdAt = createdAt;
+        this.createdAt =
+                createdAt;
     }
 
 
@@ -259,12 +290,14 @@ public class Payment {
     // =====================================================
 
     public LocalDateTime getVerifiedAt() {
+
         return verifiedAt;
     }
 
     public void setVerifiedAt(
             LocalDateTime verifiedAt) {
 
-        this.verifiedAt = verifiedAt;
+        this.verifiedAt =
+                verifiedAt;
     }
 }
